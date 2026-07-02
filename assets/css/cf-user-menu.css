@@ -1,0 +1,254 @@
+/* ═══════════════════════════════════════════════════
+   CF Auth — User Menu (Header Dropdown)
+   ═══════════════════════════════════════════════════ */
+
+/* ── Wrapper ─────────────────────────────────────── */
+.cf-user-menu {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    z-index: 9999;
+}
+
+/* Hide the <li> bullet that WordPress adds */
+li.cf-user-menu-item {
+    list-style: none !important;
+    display: flex !important;
+    align-items: center !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: none !important;
+}
+
+/* ── Trigger Button ──────────────────────────────── */
+.cf-user-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 184, 0, 0.08);
+    border: 1.5px solid rgba(255, 184, 0, 0.3);
+    border-radius: 50px;
+    padding: 4px 10px 4px 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: #fff;
+    outline: none;
+}
+.cf-user-btn:hover,
+.cf-user-btn.is-open {
+    background: rgba(255, 184, 0, 0.15);
+    border-color: rgba(255, 184, 0, 0.7);
+    box-shadow: 0 0 12px rgba(255, 184, 0, 0.15);
+}
+
+/* Guest button — icon only, circular */
+.cf-user-btn--guest {
+    padding: 7px;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    justify-content: center;
+}
+.cf-guest-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #FFB800;
+}
+
+/* ── Avatar ──────────────────────────────────────── */
+.cf-user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1.5px solid rgba(255, 184, 0, 0.5);
+    display: block;
+    flex-shrink: 0;
+}
+.cf-user-chevron {
+    font-size: 10px;
+    color: #FFB800;
+    transition: transform 0.2s ease;
+    line-height: 1;
+}
+.cf-user-btn.is-open .cf-user-chevron {
+    transform: rotate(180deg);
+}
+
+/* ── Dropdown Panel ──────────────────────────────── */
+.cf-user-dropdown {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    width: 230px;
+    background: #111111;
+    border: 1px solid #2a2a2a;
+    border-radius: 14px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255,184,0,0.05);
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px) scale(0.97);
+    transform-origin: top right;
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+    pointer-events: none;
+}
+.cf-user-dropdown.is-open {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0) scale(1);
+    pointer-events: all;
+}
+
+/* ── Dropdown Header ─────────────────────────────── */
+.cf-dropdown-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: linear-gradient(135deg, #1a1a1a 0%, #161616 100%);
+}
+.cf-dropdown-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid rgba(255,184,0,0.4);
+    flex-shrink: 0;
+}
+.cf-dropdown-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.cf-dropdown-name {
+    font-family: 'Mulish', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.cf-dropdown-role {
+    font-size: 11px;
+    color: #FFB800;
+    opacity: 0.8;
+}
+
+/* Guest header */
+.cf-dropdown-header--guest {
+    display: block;
+    padding: 14px 16px;
+}
+.cf-dropdown-header--guest p {
+    font-size: 12px;
+    color: #888;
+    margin: 0;
+    line-height: 1.5;
+    font-family: 'Space Mono', monospace;
+}
+
+/* ── Divider ─────────────────────────────────────── */
+.cf-dropdown-divider {
+    height: 1px;
+    background: #222;
+    margin: 0;
+}
+
+/* ── Nav Items ───────────────────────────────────── */
+.cf-dropdown-nav {
+    padding: 6px;
+}
+.cf-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 10px;
+    border-radius: 8px;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: #ccc;
+    text-decoration: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+    text-align: left;
+    box-sizing: border-box;
+}
+.cf-dropdown-item:hover {
+    background: rgba(255, 184, 0, 0.08);
+    color: #FFB800;
+}
+.cf-dropdown-icon {
+    width: 18px;
+    text-align: center;
+    font-size: 14px;
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+.cf-dropdown-item:hover .cf-dropdown-icon {
+    opacity: 1;
+}
+
+/* Login / Register special styles */
+.cf-dropdown-login {
+    color: #fff;
+    font-weight: 700;
+}
+.cf-dropdown-register {
+    color: #FFB800;
+    font-weight: 700;
+}
+.cf-dropdown-register:hover {
+    background: rgba(255, 184, 0, 0.12);
+}
+
+/* Logout button */
+.cf-dropdown-logout {
+    margin: 6px;
+    width: calc(100% - 12px);
+    color: #888;
+    border-top: none;
+}
+.cf-dropdown-logout:hover {
+    color: #ff6b6b;
+    background: rgba(255, 68, 68, 0.08);
+}
+
+/* ── Backdrop (mobile) ───────────────────────────── */
+.cf-menu-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    background: transparent;
+}
+.cf-menu-backdrop.is-open {
+    display: block;
+}
+
+/* ── Responsive ──────────────────────────────────── */
+@media (max-width: 600px) {
+    .cf-user-dropdown {
+        width: 200px;
+        right: -8px;
+    }
+}
+
+/* ── Neve / most themes: push to far right ────────── */
+.cf-user-menu-item {
+    margin-left: auto !important;
+}
+
+/* If the theme uses flex nav, ensure it stays right */
+.nav-menu, 
+.menu,
+ul.menu {
+    display: flex;
+    align-items: center;
+}

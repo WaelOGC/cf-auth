@@ -1,0 +1,180 @@
+/**
+ * CF Auth — Collective Finity admin branding
+ * Scoped to plugin admin screens only (via body classes).
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+	--cf-primary: #ffb700;
+	--cf-secondary: #0d0d0d;
+	--cf-charcoal: #1a1a1a;
+	--cf-gold-tint: rgba(255, 183, 0, 0.1);
+	--cf-gold-hover: #e6a500;
+	--cf-badge-text: #9a7200;
+}
+
+/* ── Scope: plugin admin pages only ─────────────────────────────────────── */
+
+body.toplevel_page_cf-auth .cf-admin-wrap,
+body.cf-auth_page_cf-auth-members .cf-admin-wrap,
+body.cf-auth_page_cf-auth-settings .cf-admin-wrap {
+
+	/* Page header / title area */
+	.cf-admin-header {
+		background: var(--cf-secondary);
+		border-bottom: 2px solid var(--cf-primary);
+		border-radius: 10px 10px 0 0;
+		padding: 20px 24px;
+		margin-bottom: 0;
+	}
+
+	.cf-admin-header h1 {
+		color: #fff;
+		font-family: "Space Mono", Consolas, Monaco, monospace;
+	}
+
+	.cf-admin-header h1 span {
+		background: var(--cf-gold-tint);
+		color: var(--cf-primary);
+		font-family: "Space Mono", Consolas, Monaco, monospace;
+	}
+
+	.cf-admin-header p {
+		color: rgba(255, 255, 255, 0.7);
+	}
+
+	/* Box headings */
+	.cf-box-head h2,
+	.cf-provider-heading,
+	.cf-guide-step h4,
+	.cf-modal-head h3 {
+		font-family: "Space Mono", Consolas, Monaco, monospace;
+	}
+
+	/* Primary / submit buttons */
+	.button-primary,
+	#cf-save-btn.button-primary {
+		background: var(--cf-primary) !important;
+		border-color: var(--cf-primary) !important;
+		color: #000 !important;
+		font-weight: 700;
+		text-shadow: none !important;
+		box-shadow: none !important;
+	}
+
+	.button-primary:hover,
+	.button-primary:focus,
+	#cf-save-btn.button-primary:hover,
+	#cf-save-btn.button-primary:focus {
+		background: var(--cf-gold-hover) !important;
+		border-color: var(--cf-gold-hover) !important;
+		color: #000 !important;
+	}
+
+	/* List tables */
+	.cf-table th {
+		background: var(--cf-charcoal);
+		color: #fff;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		font-family: "Space Mono", Consolas, Monaco, monospace;
+		font-size: 10px;
+		border-bottom: none;
+	}
+
+	.cf-table tbody tr:hover td {
+		background: rgba(255, 183, 0, 0.06);
+	}
+
+	/* Status / role badges — active / positive */
+	.cf-status-active,
+	.cf-verified {
+		background: var(--cf-gold-tint);
+		color: var(--cf-badge-text);
+		font-family: "Space Mono", Consolas, Monaco, monospace;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+	}
+
+	.cf-pill {
+		background: var(--cf-gold-tint);
+		color: var(--cf-badge-text);
+		font-family: "Space Mono", Consolas, Monaco, monospace;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+	}
+
+	/* Pagination active state */
+	.cf-page-btn.active {
+		background: var(--cf-primary);
+		border-color: var(--cf-primary);
+		color: #000;
+	}
+
+	/* Stat numbers accent */
+	.cf-stat-num,
+	.cf-provider-cnt {
+		color: var(--cf-primary);
+		font-family: "Space Mono", Consolas, Monaco, monospace;
+	}
+
+	.cf-provider-bar {
+		background: var(--cf-primary);
+	}
+
+	.cf-guide-num {
+		background: var(--cf-primary);
+		font-family: "Space Mono", Consolas, Monaco, monospace;
+	}
+}
+
+/* ── Settings tabs (pill style) ───────────────────────────────────────────── */
+
+body.cf-auth_page_cf-auth-settings .cf-tab-nav {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	background: #f0f0f1;
+	border: none;
+	border-radius: 20px;
+	padding: 4px;
+	margin: 20px 0;
+}
+
+body.cf-auth_page_cf-auth-settings .cf-tab-link {
+	padding: 8px 18px;
+	border-radius: 20px;
+	border: none;
+	margin-bottom: 0;
+	color: #50575e;
+	font-size: 13px;
+	font-weight: 500;
+	text-decoration: none;
+	transition: background 0.15s, color 0.15s;
+}
+
+body.cf-auth_page_cf-auth-settings .cf-tab-link:hover {
+	color: #1d2327;
+	background: rgba(255, 255, 255, 0.6);
+}
+
+body.cf-auth_page_cf-auth-settings .cf-tab-link.active {
+	background: var(--cf-primary);
+	color: #000;
+	font-weight: 700;
+	font-family: "Space Mono", Consolas, Monaco, monospace;
+}
+
+/* Connect header + first content block on settings page */
+body.cf-auth_page_cf-auth-settings .cf-admin-header {
+	border-radius: 10px 10px 0 0;
+}
+
+body.cf-auth_page_cf-auth-settings .cf-tab-nav + .cf-admin-box,
+body.cf-auth_page_cf-auth-settings .cf-tab-nav + #cf-settings-form,
+body.cf-auth_page_cf-auth-settings .cf-tab-nav + form {
+	border-radius: 0 0 10px 10px;
+}
