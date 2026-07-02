@@ -25,6 +25,10 @@ class CF_Login {
         $remember = ! empty( $_POST['remember'] );
 
         if ( empty( $email ) || empty( $password ) ) {
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'email' => $email,
+                'meta'  => [ 'reason' => 'empty_fields' ],
+            ] );
             wp_send_json_error( [ 'message' => __( 'Email and password are required.', 'cf-auth' ) ] );
         }
 
@@ -34,6 +38,10 @@ class CF_Login {
         $attempts = (int) get_transient( $key );
 
         if ( $attempts >= 5 ) {
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'email' => $email,
+                'meta'  => [ 'reason' => 'rate_limited' ],
+            ] );
             wp_send_json_error( [ 'message' => __( 'Too many login attempts. Please try again in 15 minutes.', 'cf-auth' ) ] );
         }
 
@@ -42,18 +50,32 @@ class CF_Login {
 
         if ( ! $user ) {
             set_transient( $key, $attempts + 1, 15 * MINUTE_IN_SECONDS );
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'email' => $email,
+                'meta'  => [ 'reason' => 'user_not_found' ],
+            ] );
             wp_send_json_error( [ 'message' => __( 'Invalid email or password.', 'cf-auth' ) ] );
         }
 
         // Check password
         if ( ! wp_check_password( $password, $user->user_pass, $user->ID ) ) {
             set_transient( $key, $attempts + 1, 15 * MINUTE_IN_SECONDS );
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'user_id' => $user->ID,
+                'email'   => $email,
+                'meta'    => [ 'reason' => 'invalid_password' ],
+            ] );
             wp_send_json_error( [ 'message' => __( 'Invalid email or password.', 'cf-auth' ) ] );
         }
 
         // Check email verified
         $verified = get_user_meta( $user->ID, 'cf_email_verified', true );
         if ( $verified !== '1' ) {
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'user_id' => $user->ID,
+                'email'   => $email,
+                'meta'    => [ 'reason' => 'email_not_verified' ],
+            ] );
             wp_send_json_error( [
                 'message'       => __( 'Please verify your email before logging in.', 'cf-auth' ),
                 'show_resend'   => true,
@@ -64,6 +86,11 @@ class CF_Login {
         // Check account status
         $status = get_user_meta( $user->ID, 'cf_account_status', true );
         if ( $status === 'suspended' ) {
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'user_id' => $user->ID,
+                'email'   => $email,
+                'meta'    => [ 'reason' => 'account_suspended' ],
+            ] );
             wp_send_json_error( [ 'message' => __( 'Your account has been suspended. Contact support.', 'cf-auth' ) ] );
         }
 
@@ -75,6 +102,12 @@ class CF_Login {
 
         // Set auth cookie
         wp_set_auth_cookie( $user->ID, $remember );
+
+        CF_Activity_Log::safe_log( 'login_success', [
+            'user_id'  => $user->ID,
+            'email'    => $email,
+            'provider' => 'manual',
+        ] );
 
         $redirect = sanitize_url( $_POST['redirect_to'] ?? '' );
         if ( empty( $redirect ) || ! wp_validate_redirect( $redirect ) ) {
@@ -90,6 +123,17 @@ class CF_Login {
     // ── Logout ────────────────────────────────────────────────────────────────
     public function handle_logout() {
         check_ajax_referer( 'cf_auth_nonce', 'nonce' );
+
+        $user_id = get_current_user_id();
+        if ( $user_id ) {
+            $user = get_userdata( $user_id );
+            CF_Activity_Log::safe_log( 'logout', [
+                'user_id'  => $user_id,
+                'email'    => $user ? $user->user_email : null,
+                'provider' => get_user_meta( $user_id, 'cf_social_provider', true ) ?: 'manual',
+            ] );
+        }
+
         wp_logout();
         wp_send_json_success( [
             'redirect' => get_option( 'cf_auth_logout_redirect', home_url() ),

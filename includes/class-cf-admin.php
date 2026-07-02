@@ -26,6 +26,7 @@ class CF_Admin {
         add_submenu_page( 'cf-auth', 'Overview', 'Overview', 'manage_options', 'cf-auth',          [ $this, 'page_overview'  ] );
         add_submenu_page( 'cf-auth', 'Members',  'Members',  'manage_options', 'cf-auth-members',  [ $this, 'page_members'   ] );
         add_submenu_page( 'cf-auth', 'Settings', 'Settings', 'manage_options', 'cf-auth-settings', [ $this, 'page_settings'  ] );
+        add_submenu_page( 'cf-auth', 'Activity Log', 'Activity Log', 'manage_options', 'cf-auth-activity', [ $this, 'page_activity' ] );
     }
 
     public function enqueue_assets( $hook ) {
@@ -33,6 +34,7 @@ class CF_Admin {
             'toplevel_page_cf-auth',
             'cf-auth_page_cf-auth-members',
             'cf-auth_page_cf-auth-settings',
+            'cf-auth_page_cf-auth-activity',
         ];
         if ( ! in_array( $hook, $screens, true ) ) return;
 
@@ -438,6 +440,128 @@ class CF_Admin {
         <?php
     }
 
+    // ── Activity Log ──────────────────────────────────────────────────────────
+    public function page_activity() {
+        $event_type = sanitize_key( $_GET['event_type'] ?? '' );
+        $date_from  = sanitize_text_field( $_GET['date_from'] ?? '' );
+        $date_to    = sanitize_text_field( $_GET['date_to'] ?? '' );
+        $search     = sanitize_text_field( $_GET['s'] ?? '' );
+        $paged      = max( 1, absint( $_GET['paged'] ?? 1 ) );
+        $per        = 20;
+
+        $filters = array_filter( [
+            'event_type' => $event_type,
+            'date_from'  => $date_from,
+            'date_to'    => $date_to,
+            'search'     => $search,
+        ] );
+
+        $result = CF_Activity_Log::get_entries( $filters, $per, $paged );
+        $rows   = $result['rows'];
+        $total  = $result['total'];
+        $pages  = ceil( $total / $per );
+
+        $event_types = [
+            ''               => 'All Events',
+            'login_success'  => 'Login Success',
+            'login_failed'   => 'Login Failed',
+            'registered'     => 'Registered',
+            'logout'         => 'Logout',
+            'status_changed' => 'Status Changed',
+        ];
+        ?>
+        <div class="cf-admin-wrap">
+            <div class="cf-admin-header">
+                <h1>📋 Activity Log <span><?php echo (int) $total; ?> entries</span></h1>
+            </div>
+
+            <form method="get" class="cf-filters">
+                <input type="hidden" name="page" value="cf-auth-activity">
+                <div class="cf-filter-group">
+                    <select name="event_type">
+                        <?php foreach ( $event_types as $value => $label ) : ?>
+                        <option value="<?php echo esc_attr( $value ); ?>" <?php selected( $event_type, $value ); ?>><?php echo esc_html( $label ); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <input type="date" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" placeholder="From">
+                    <input type="date" name="date_to" value="<?php echo esc_attr( $date_to ); ?>" placeholder="To">
+                    <input type="text" name="s" value="<?php echo esc_attr( $search ); ?>" placeholder="Search email or name...">
+                    <button type="submit" class="button">Filter</button>
+                    <?php if ( $event_type || $date_from || $date_to || $search ) : ?>
+                    <a href="<?php echo admin_url( 'admin.php?page=cf-auth-activity' ); ?>" class="button">Clear</a>
+                    <?php endif; ?>
+                </div>
+            </form>
+
+            <div class="cf-admin-box">
+                <table class="cf-table">
+                    <thead>
+                        <tr>
+                            <th>Event</th>
+                            <th>Member / Email</th>
+                            <th>Provider</th>
+                            <th>IP Address</th>
+                            <th>Date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php if ( empty( $rows ) ) : ?>
+                    <tr><td colspan="5" class="cf-empty">No activity found.</td></tr>
+                    <?php else : foreach ( $rows as $row ) :
+                        $badge_class = CF_Activity_Log::event_badge_class( $row->event_type, $row->meta );
+                        $member_label = $row->display_name
+                            ? esc_html( $row->display_name )
+                            : ( $row->email ? esc_html( $row->email ) : '—' );
+                        $email_sub = ( $row->display_name && $row->email )
+                            ? '<div class="cf-tbl-email">' . esc_html( $row->email ) . '</div>'
+                            : '';
+                    ?>
+                    <tr>
+                        <td>
+                            <span class="<?php echo esc_attr( $badge_class ); ?>">
+                                <?php echo esc_html( CF_Activity_Log::event_label( $row->event_type ) ); ?>
+                            </span>
+                        </td>
+                        <td>
+                            <div class="cf-tbl-name"><?php echo $member_label; ?></div>
+                            <?php echo $email_sub; ?>
+                        </td>
+                        <td>
+                            <?php if ( $row->provider ) : ?>
+                            <span class="cf-pill"><?php echo esc_html( ucfirst( $row->provider ) ); ?></span>
+                            <?php else : ?>
+                            <span class="cf-tbl-date">—</span>
+                            <?php endif; ?>
+                        </td>
+                        <td class="cf-tbl-date"><?php echo esc_html( $row->ip_address ?: '—' ); ?></td>
+                        <td class="cf-tbl-date"><?php echo esc_html( date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $row->created_at ) ) ); ?></td>
+                    </tr>
+                    <?php endforeach; endif; ?>
+                    </tbody>
+                </table>
+
+                <?php if ( $pages > 1 ) : ?>
+                <div class="cf-pagination">
+                    <?php for ( $i = 1; $i <= $pages; $i++ ) :
+                        $url = add_query_arg( array_merge(
+                            [ 'page' => 'cf-auth-activity', 'paged' => $i ],
+                            array_filter( [
+                                'event_type' => $event_type,
+                                'date_from'  => $date_from,
+                                'date_to'    => $date_to,
+                                's'          => $search,
+                            ] )
+                        ), admin_url( 'admin.php' ) );
+                    ?>
+                    <a href="<?php echo esc_url( $url ); ?>" class="cf-page-btn <?php echo $i === $paged ? 'active' : ''; ?>"><?php echo (int) $i; ?></a>
+                    <?php endfor; ?>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php
+    }
+
     // ── AJAX ──────────────────────────────────────────────────────────────────
     public function ajax_suspend() {
         check_ajax_referer('cf_admin_nonce','nonce');
@@ -445,7 +569,20 @@ class CF_Admin {
         $uid    = absint($_POST['user_id']);
         $action = sanitize_key($_POST['action_type']);
         $status = $action==='suspend' ? 'suspended' : 'active';
+        $old_status = get_user_meta( $uid, 'cf_account_status', true ) ?: 'active';
         update_user_meta($uid,'cf_account_status',$status);
+        if ( $old_status !== $status ) {
+            $user = get_userdata( $uid );
+            CF_Activity_Log::safe_log( 'status_changed', [
+                'user_id' => $uid,
+                'email'   => $user ? $user->user_email : null,
+                'meta'    => [
+                    'old_status' => $old_status,
+                    'new_status' => $status,
+                    'source'     => 'members_suspend_action',
+                ],
+            ] );
+        }
         wp_send_json_success(['message'=>"User {$status}.",'new_status'=>$status]);
     }
 
@@ -497,10 +634,24 @@ class CF_Admin {
 
         if (empty($name)) wp_send_json_error(['message'=>'Display name required.']);
 
+        $old_status = get_user_meta( $uid, 'cf_account_status', true ) ?: 'active';
+
         wp_update_user(['ID'=>$uid,'display_name'=>$name,'user_email'=>$email]);
         update_user_meta($uid,'cf_bio',$bio);
         update_user_meta($uid,'cf_account_status',$status);
         update_user_meta($uid,'cf_email_verified',$ver);
+
+        if ( $old_status !== $status ) {
+            CF_Activity_Log::safe_log( 'status_changed', [
+                'user_id' => $uid,
+                'email'   => $email,
+                'meta'    => [
+                    'old_status' => $old_status,
+                    'new_status' => $status,
+                    'source'     => 'members_edit_modal',
+                ],
+            ] );
+        }
 
         wp_send_json_success(['message'=>'Member updated successfully.']);
     }

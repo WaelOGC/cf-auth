@@ -18,7 +18,8 @@
 
 body.toplevel_page_cf-auth .cf-admin-wrap,
 body.cf-auth_page_cf-auth-members .cf-admin-wrap,
-body.cf-auth_page_cf-auth-settings .cf-admin-wrap {
+body.cf-auth_page_cf-auth-settings .cf-admin-wrap,
+body.cf-auth_page_cf-auth-activity .cf-admin-wrap {
 
 	/* Page header / title area */
 	.cf-admin-header {
@@ -128,6 +129,34 @@ body.cf-auth_page_cf-auth-settings .cf-admin-wrap {
 	.cf-guide-num {
 		background: var(--cf-primary);
 		font-family: "Space Mono", Consolas, Monaco, monospace;
+	}
+
+	/* Activity log event badges */
+	.cf-event-badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 3px 10px;
+		border-radius: 20px;
+		font-size: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+		font-family: "Space Mono", Consolas, Monaco, monospace;
+	}
+
+	.cf-event-positive {
+		background: var(--cf-gold-tint);
+		color: var(--cf-badge-text);
+	}
+
+	.cf-event-danger {
+		background: rgba(214, 54, 56, 0.1);
+		color: #d63638;
+	}
+
+	.cf-event-neutral {
+		background: #f3f4f6;
+		color: #555;
 	}
 }
 

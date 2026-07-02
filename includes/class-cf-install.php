@@ -5,6 +5,8 @@ class CF_Install {
 
     public static function activate() {
         self::create_tables();
+        CF_Activity_Log::create_table();
+        update_option( 'cf_auth_db_version', CF_Activity_Log::DB_VERSION );
         self::create_roles();
         self::create_pages();
         self::set_default_options();

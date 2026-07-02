@@ -22,6 +22,10 @@ class CF_Social_Auth {
         $url      = $this->get_auth_url( $provider );
 
         if ( ! $url ) {
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'provider' => $provider,
+                'meta'     => [ 'reason' => 'provider_not_configured' ],
+            ] );
             wp_send_json_error( [ 'message' => __( 'Provider not configured.', 'cf-auth' ) ] );
         }
 
@@ -96,14 +100,27 @@ class CF_Social_Auth {
 
     // ── Handle OAuth Callback ─────────────────────────────────────────────────
     public function handle_oauth_callback() {
-        if ( ! isset( $_GET['cf_oauth'] ) || ! isset( $_GET['code'] ) ) return;
+        if ( ! isset( $_GET['cf_oauth'] ) ) return;
 
         $provider = sanitize_key( $_GET['cf_oauth'] );
+
+        if ( ! isset( $_GET['code'] ) ) {
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'provider' => $provider,
+                'meta'     => [ 'reason' => 'oauth_denied' ],
+            ] );
+            return;
+        }
+
         $code     = sanitize_text_field( $_GET['code'] );
         $state    = sanitize_text_field( $_GET['state'] ?? '' );
 
         // Validate state
         if ( ! wp_verify_nonce( $state, 'cf_oauth_' . $provider ) ) {
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'provider' => $provider,
+                'meta'     => [ 'reason' => 'oauth_state_invalid' ],
+            ] );
             wp_die( __( 'Security check failed. Please try again.', 'cf-auth' ) );
         }
 
@@ -116,10 +133,22 @@ class CF_Social_Auth {
             case 'facebook': $user_data = $this->facebook_get_user( $code, $callback_url ); break;
             case 'discord':  $user_data = $this->discord_get_user( $code, $callback_url ); break;
             case 'twitter':  $user_data = $this->twitter_get_user( $code, $state, $callback_url ); break;
-            default:         wp_safe_redirect( home_url( '/cf-login?error=invalid_provider' ) ); exit;
+            default:
+                CF_Activity_Log::safe_log( 'login_failed', [
+                    'provider' => $provider,
+                    'meta'     => [ 'reason' => 'invalid_provider' ],
+                ] );
+                wp_safe_redirect( home_url( '/cf-login?error=invalid_provider' ) ); exit;
         }
 
         if ( is_wp_error( $user_data ) ) {
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'provider' => $provider,
+                'meta'     => [
+                    'reason' => 'oauth_token_error',
+                    'error'  => $user_data->get_error_message(),
+                ],
+            ] );
             wp_safe_redirect( home_url( '/cf-login?error=' . urlencode( $user_data->get_error_message() ) ) );
             exit;
         }
@@ -127,6 +156,14 @@ class CF_Social_Auth {
         $user_id = $this->find_or_create_user( $user_data, $provider );
 
         if ( is_wp_error( $user_id ) ) {
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'email'    => $user_data['email'] ?? null,
+                'provider' => $provider,
+                'meta'     => [
+                    'reason' => 'oauth_user_error',
+                    'error'  => $user_id->get_error_message(),
+                ],
+            ] );
             wp_safe_redirect( home_url( '/cf-login?error=' . urlencode( $user_id->get_error_message() ) ) );
             exit;
         }
@@ -290,6 +327,11 @@ class CF_Social_Auth {
                 $wpdb->update( $wpdb->prefix . 'cf_social_connections', [ 'avatar_url' => $data['avatar_url'] ], [ 'user_id' => $row->user_id, 'provider' => $provider ] );
                 update_user_meta( $row->user_id, 'cf_social_avatar', $data['avatar_url'] );
             }
+            CF_Activity_Log::safe_log( 'login_success', [
+                'user_id'  => (int) $row->user_id,
+                'email'    => $data['email'] ?? null,
+                'provider' => $provider,
+            ] );
             return $row->user_id;
         }
 
@@ -299,6 +341,11 @@ class CF_Social_Auth {
             if ( $existing ) {
                 // Link social account to existing user
                 $this->save_social_connection( $existing->ID, $provider, $data );
+                CF_Activity_Log::safe_log( 'login_success', [
+                    'user_id'  => $existing->ID,
+                    'email'    => $data['email'],
+                    'provider' => $provider,
+                ] );
                 return $existing->ID;
             }
         }
@@ -328,6 +375,12 @@ class CF_Social_Auth {
 
         $this->save_social_connection( $user_id, $provider, $data );
         CF_Email::send_welcome( $user_id );
+
+        CF_Activity_Log::safe_log( 'registered', [
+            'user_id'  => $user_id,
+            'email'    => $email,
+            'provider' => $provider,
+        ] );
 
         return $user_id;
     }

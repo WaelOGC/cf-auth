@@ -69,6 +69,12 @@ class CF_Registration {
         // Send verification email
         CF_Email::send_verification( $user_id );
 
+        CF_Activity_Log::safe_log( 'registered', [
+            'user_id'  => $user_id,
+            'email'    => $email,
+            'provider' => 'manual',
+        ] );
+
         wp_send_json_success( [
             'message'  => __( 'Account created! Please check your email to verify your account.', 'cf-auth' ),
             'redirect' => get_option( 'cf_auth_after_register', home_url( '/cf-verify-email' ) ),

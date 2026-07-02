@@ -29,6 +29,9 @@ require_once CF_AUTH_DIR . 'includes/class-cf-social-auth.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-shortcodes.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-user-menu.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-admin.php';
+require_once CF_AUTH_DIR . 'includes/class-cf-activity-log.php';
+
+CF_Activity_Log::init();
 
 // ── Hide Admin Bar for non-admins immediately ─────────────────────────────────
 add_action( 'init', function() {
