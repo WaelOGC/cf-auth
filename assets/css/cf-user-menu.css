@@ -225,7 +225,7 @@ li.cf-user-menu-item {
     display: none;
     position: fixed;
     inset: 0;
-    z-index: 9998;
+    z-index: 500;
     background: transparent;
 }
 .cf-menu-backdrop.is-open {
