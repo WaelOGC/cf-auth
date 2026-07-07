@@ -12,7 +12,7 @@
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 // ── Constants ────────────────────────────────────────────────────────────────
-define( 'CF_AUTH_VERSION',   '2.0.0' );
+define( 'CF_AUTH_VERSION',   '2.0.1' );
 define( 'CF_AUTH_DIR',       plugin_dir_path( __FILE__ ) );
 define( 'CF_AUTH_URL',       plugin_dir_url( __FILE__ ) );
 define( 'CF_AUTH_TEMPLATES', CF_AUTH_DIR . 'templates/' );
