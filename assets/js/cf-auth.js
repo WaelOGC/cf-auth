@@ -120,6 +120,8 @@
     });
 
     // ── Profile tabs ──────────────────────────────────
+    const PROFILE_TABS = ['overview', 'favorites', 'history', 'settings'];
+
     $(document).on('click', '.cf-tab', function () {
         const tab = $(this).data('tab');
         $('.cf-tab').removeClass('active');
@@ -127,7 +129,15 @@
         $('.cf-tab-panel').hide();
         $('#cf-tab-' + tab).show();
         if (tab === 'history') loadHistory();
+        history.replaceState(null, '', '#' + tab);
     });
+
+    if ($('.cf-tab').length) {
+        const hash = window.location.hash.replace(/^#/, '');
+        if (PROFILE_TABS.indexOf(hash) !== -1 && $('.cf-tab[data-tab="' + hash + '"]').length) {
+            $('.cf-tab[data-tab="' + hash + '"]').trigger('click');
+        }
+    }
 
     // Go to settings tab from overview
     $(document).on('click', '.cf-go-settings', function () {
@@ -219,6 +229,11 @@
     window.CF_Auth = {
         toggleFavorite: (id, type) => new Promise((res,rej) =>
             post('cf_toggle_favorite',{ item_id:id, item_type:type }, res, rej)
+        ),
+        getFavorites: () => new Promise((res, rej) =>
+            $.post(CF.ajax_url, { action: 'cf_get_favorites', nonce: CF.nonce })
+                .done(d => d.success ? res(d.data) : rej(d))
+                .fail(rej)
         ),
         logListening: id => post('cf_log_listening',{ track_id:id }),
     };

@@ -114,6 +114,10 @@ class CF_Login {
             $redirect = get_option( 'cf_auth_login_redirect', home_url( '/cf-profile' ) );
         }
 
+        do_action( 'cf_auth_after_login', $user->ID, [
+            'method' => 'password',
+        ] );
+
         wp_send_json_success( [
             'message'  => __( 'Login successful! Redirecting...', 'cf-auth' ),
             'redirect' => $redirect,
@@ -132,6 +136,10 @@ class CF_Login {
                 'email'    => $user ? $user->user_email : null,
                 'provider' => get_user_meta( $user_id, 'cf_social_provider', true ) ?: 'manual',
             ] );
+        }
+
+        if ( $user_id ) {
+            do_action( 'cf_auth_before_logout', $user_id );
         }
 
         wp_logout();

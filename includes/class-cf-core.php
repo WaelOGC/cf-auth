@@ -28,6 +28,7 @@ class CF_Core {
         CF_Password::get_instance();
         CF_Profile::get_instance();
         CF_Social_Auth::get_instance();
+        CF_Donations::get_instance();
         CF_Shortcodes::get_instance();
         if ( is_admin() ) {
             CF_Admin::get_instance();

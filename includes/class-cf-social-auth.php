@@ -170,6 +170,12 @@ class CF_Social_Auth {
 
         update_user_meta( $user_id, 'cf_last_active', current_time( 'mysql' ) );
         wp_set_auth_cookie( $user_id, false );
+
+        do_action( 'cf_auth_after_login', $user_id, [
+            'method'   => 'social',
+            'provider' => $provider,
+        ] );
+
         wp_safe_redirect( get_option( 'cf_auth_login_redirect', home_url( '/cf-profile' ) ) );
         exit;
     }

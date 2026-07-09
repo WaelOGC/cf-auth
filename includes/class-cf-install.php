@@ -3,10 +3,12 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class CF_Install {
 
+    const DB_VERSION = '2';
+
     public static function activate() {
         self::create_tables();
         CF_Activity_Log::create_table();
-        update_option( 'cf_auth_db_version', CF_Activity_Log::DB_VERSION );
+        update_option( 'cf_auth_db_version', self::DB_VERSION );
         self::create_roles();
         self::create_pages();
         self::set_default_options();
@@ -17,7 +19,26 @@ class CF_Install {
         flush_rewrite_rules();
     }
 
-    // ── Database Tables ───────────────────────────────────────────────────────
+    public static function maybe_upgrade() {
+        $stored = get_option( 'cf_auth_db_version', '' );
+        if ( $stored === self::DB_VERSION ) {
+            return;
+        }
+        self::create_tables();
+        CF_Activity_Log::create_table();
+        update_option( 'cf_auth_db_version', self::DB_VERSION );
+    }
+
+    /**
+     * Core plugin tables (email tokens, social connections, listening history,
+     * password reset tokens).
+     *
+     * When a future module (e.g. donations, courses) needs a new table, add
+     * its dbDelta() SQL here (or call its installer from here), then bump
+     * CF_Install::DB_VERSION. Already-active installs will create the new
+     * table automatically on their next request via maybe_upgrade() — no
+     * reactivation required.
+     */
     private static function create_tables() {
         global $wpdb;
         $charset = $wpdb->get_charset_collate();
@@ -66,11 +87,31 @@ class CF_Install {
             INDEX idx_token (token)
         ) $charset;";
 
+        // PayPal donations
+        $sql5 = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}cf_donations (
+            id                BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id           BIGINT UNSIGNED DEFAULT NULL,
+            donor_name        VARCHAR(190)    DEFAULT NULL,
+            donor_email       VARCHAR(190)    DEFAULT NULL,
+            amount            DECIMAL(10,2)   NOT NULL,
+            currency          VARCHAR(3)      NOT NULL DEFAULT 'EUR',
+            paypal_order_id   VARCHAR(64)     DEFAULT NULL,
+            paypal_capture_id VARCHAR(64)     DEFAULT NULL UNIQUE,
+            status            VARCHAR(20)     NOT NULL DEFAULT 'pending',
+            message           TEXT            DEFAULT NULL,
+            show_on_wall      TINYINT(1)      NOT NULL DEFAULT 1,
+            created_at        DATETIME        DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_status (status),
+            INDEX idx_user_id (user_id),
+            INDEX idx_created_at (created_at)
+        ) $charset;";
+
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta( $sql1 );
         dbDelta( $sql2 );
         dbDelta( $sql3 );
         dbDelta( $sql4 );
+        dbDelta( $sql5 );
     }
 
     // ── Custom Role ───────────────────────────────────────────────────────────
@@ -122,6 +163,13 @@ class CF_Install {
             'cf_auth_login_redirect'        => home_url( '/cf-profile' ),
             'cf_auth_logout_redirect'       => home_url(),
             'cf_auth_after_register'        => home_url( '/cf-verify-email' ),
+            'cf_auth_paypal_mode'                 => 'sandbox',
+            'cf_auth_paypal_sandbox_client_id'    => '',
+            'cf_auth_paypal_sandbox_client_secret'=> '',
+            'cf_auth_paypal_live_client_id'       => '',
+            'cf_auth_paypal_live_client_secret'   => '',
+            'cf_auth_paypal_webhook_id'           => '',
+            'cf_auth_donation_currency'           => 'EUR',
         ];
         foreach ( $defaults as $key => $val ) {
             if ( get_option( $key ) === false ) {

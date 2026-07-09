@@ -75,6 +75,10 @@ class CF_Registration {
             'provider' => 'manual',
         ] );
 
+        do_action( 'cf_auth_after_register', $user_id, [
+            'email_verification_required' => get_option( 'cf_auth_email_verification' ) === '1',
+        ] );
+
         wp_send_json_success( [
             'message'  => __( 'Account created! Please check your email to verify your account.', 'cf-auth' ),
             'redirect' => get_option( 'cf_auth_after_register', home_url( '/cf-verify-email' ) ),
@@ -112,6 +116,8 @@ class CF_Registration {
 
         // Send welcome email
         CF_Email::send_welcome( $user_id );
+
+        do_action( 'cf_auth_after_email_verified', $user_id );
 
         // Auto-login
         wp_set_auth_cookie( $user_id, false );

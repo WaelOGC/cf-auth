@@ -4,6 +4,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 class CF_Shortcodes {
 
     private static $instance = null;
+    private static $paypal_sdk_loaded = false;
 
     public static function get_instance() {
         if ( null === self::$instance ) self::$instance = new self();
@@ -17,6 +18,7 @@ class CF_Shortcodes {
         add_shortcode( 'cf_reset_password',  [ $this, 'render_reset'    ] );
         add_shortcode( 'cf_user_profile',    [ $this, 'render_profile'  ] );
         add_shortcode( 'cf_verify_email',    [ $this, 'render_verify'   ] );
+        add_shortcode( 'cf_donation_form',   [ $this, 'render_donation' ] );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -335,6 +337,192 @@ class CF_Shortcodes {
             </div>
         </div>
         <?php return ob_get_clean();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // DONATION FORM
+    // ─────────────────────────────────────────────────────────────────────────
+    public function render_donation() {
+        $currency  = get_option( 'cf_auth_donation_currency', 'EUR' );
+        $client_id = CF_Donations::get_public_client_id();
+
+        ob_start();
+
+        if ( ! self::$paypal_sdk_loaded && $client_id ) {
+            self::$paypal_sdk_loaded = true;
+            $sdk_url = 'https://www.paypal.com/sdk/js?client-id=' . rawurlencode( $client_id )
+                     . '&currency=' . rawurlencode( $currency )
+                     . '&intent=capture';
+            echo '<script src="' . esc_url( $sdk_url ) . '"></script>';
+        }
+        ?>
+        <div class="cf-page-wrap cf-donation-page">
+            <div class="cf-card">
+                <div class="cf-card-header">
+                    <h3><?php _e( 'Support Us', 'cf-auth' ); ?></h3>
+                    <p><?php _e( 'Your donation helps keep the music flowing.', 'cf-auth' ); ?></p>
+                </div>
+
+                <div id="cf-donation-container">
+                    <form id="cf-donation-form" class="cf-form">
+                        <div id="cf-donation-message" class="cf-message" style="display:none"></div>
+
+                        <div class="cf-field">
+                            <label for="cf-donation-amount"><?php _e( 'Amount', 'cf-auth' ); ?></label>
+                            <input type="number" id="cf-donation-amount" name="amount" class="cf-donation-amount"
+                                   min="1" step="0.01" required
+                                   placeholder="<?php echo esc_attr( $currency ); ?>">
+                        </div>
+
+                        <div class="cf-field">
+                            <label for="cf-donation-name"><?php _e( 'Your Name', 'cf-auth' ); ?> <span class="cf-muted"><?php _e( '(optional)', 'cf-auth' ); ?></span></label>
+                            <input type="text" id="cf-donation-name" name="donor_name" class="cf-donation-name"
+                                   placeholder="<?php esc_attr_e( 'Display on the donor wall', 'cf-auth' ); ?>">
+                        </div>
+
+                        <div class="cf-field">
+                            <label for="cf-donation-message-field"><?php _e( 'Message', 'cf-auth' ); ?> <span class="cf-muted"><?php _e( '(optional)', 'cf-auth' ); ?></span></label>
+                            <textarea id="cf-donation-message-field" name="message" class="cf-donation-message-field" rows="3"
+                                      placeholder="<?php esc_attr_e( 'Leave a note with your donation', 'cf-auth' ); ?>"></textarea>
+                        </div>
+
+                        <div class="cf-field">
+                            <label class="cf-checkbox-label">
+                                <input type="checkbox" id="cf-donation-anonymous" name="is_anonymous" class="cf-donation-anonymous">
+                                <?php _e( 'Donate anonymously', 'cf-auth' ); ?>
+                            </label>
+                        </div>
+
+                        <div id="cf-paypal-buttons" class="cf-paypal-buttons"></div>
+                    </form>
+
+                    <div id="cf-donation-thankyou" class="cf-donation-thankyou" style="display:none">
+                        <p class="cf-notice-text">✓ <?php _e( 'Thank you for your donation!', 'cf-auth' ); ?></p>
+                    </div>
+
+                    <div id="cf-donation-processing" class="cf-donation-processing" style="display:none">
+                        <p class="cf-notice-text"><?php _e( 'Your payment is being processed. We will confirm once it completes.', 'cf-auth' ); ?></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <script>
+        (function () {
+            'use strict';
+            var CF = window.CF_AUTH || {};
+
+            function showMessage(text, type) {
+                var el = document.getElementById('cf-donation-message');
+                if (!el) return;
+                el.textContent = text;
+                el.className = 'cf-message' + (type === 'error' ? ' is-error' : ' is-success');
+                el.style.display = '';
+            }
+
+            function hideMessage() {
+                var el = document.getElementById('cf-donation-message');
+                if (el) el.style.display = 'none';
+            }
+
+            function showThankYou() {
+                var form = document.getElementById('cf-donation-form');
+                var thankyou = document.getElementById('cf-donation-thankyou');
+                var processing = document.getElementById('cf-donation-processing');
+                if (form) form.style.display = 'none';
+                if (processing) processing.style.display = 'none';
+                if (thankyou) thankyou.style.display = '';
+            }
+
+            function showProcessing() {
+                var form = document.getElementById('cf-donation-form');
+                var thankyou = document.getElementById('cf-donation-thankyou');
+                var processing = document.getElementById('cf-donation-processing');
+                if (form) form.style.display = 'none';
+                if (thankyou) thankyou.style.display = 'none';
+                if (processing) processing.style.display = '';
+            }
+
+            function postAction(action, data) {
+                var body = new FormData();
+                body.append('action', action);
+                body.append('nonce', CF.nonce || '');
+                Object.keys(data).forEach(function (key) {
+                    body.append(key, data[key]);
+                });
+                return fetch(CF.ajax_url, { method: 'POST', body: body, credentials: 'same-origin' })
+                    .then(function (r) { return r.json(); });
+            }
+
+            function initPayPalButtons() {
+                if (typeof paypal === 'undefined') {
+                    setTimeout(initPayPalButtons, 100);
+                    return;
+                }
+
+                var container = document.getElementById('cf-paypal-buttons');
+                if (!container || container.dataset.initialized === '1') return;
+                container.dataset.initialized = '1';
+
+                paypal.Buttons({
+                    createOrder: function () {
+                        var amountEl = document.getElementById('cf-donation-amount');
+                        var amount = parseFloat(amountEl ? amountEl.value : '');
+                        if (isNaN(amount) || amount <= 0) {
+                            showMessage('<?php echo esc_js( __( 'Please enter a valid donation amount.', 'cf-auth' ) ); ?>', 'error');
+                            return Promise.reject(new Error('invalid_amount'));
+                        }
+
+                        hideMessage();
+
+                        var nameEl = document.getElementById('cf-donation-name');
+                        var msgEl = document.getElementById('cf-donation-message-field');
+                        var anonEl = document.getElementById('cf-donation-anonymous');
+
+                        return postAction('cf_paypal_create_order', {
+                            amount: amount,
+                            donor_name: nameEl ? nameEl.value : '',
+                            message: msgEl ? msgEl.value : '',
+                            is_anonymous: anonEl && anonEl.checked ? '1' : '0'
+                        }).then(function (res) {
+                            if (!res.success || !res.data || !res.data.order_id) {
+                                var msg = (res.data && res.data.message) ? res.data.message : '<?php echo esc_js( __( 'Unable to process donation. Please try again.', 'cf-auth' ) ); ?>';
+                                showMessage(msg, 'error');
+                                return Promise.reject(new Error('create_order_failed'));
+                            }
+                            return res.data.order_id;
+                        });
+                    },
+                    onApprove: function (data) {
+                        return postAction('cf_paypal_capture_order', {
+                            paypal_order_id: data.orderID
+                        }).then(function (res) {
+                            if (!res.success) {
+                                var msg = (res.data && res.data.message) ? res.data.message : '<?php echo esc_js( __( 'Unable to process donation. Please try again.', 'cf-auth' ) ); ?>';
+                                showMessage(msg, 'error');
+                                return;
+                            }
+                            if (res.data && res.data.status === 'completed') {
+                                showThankYou();
+                            } else {
+                                showProcessing();
+                            }
+                        });
+                    },
+                    onError: function () {
+                        showMessage('<?php echo esc_js( __( 'Something went wrong with PayPal. Please try again.', 'cf-auth' ) ); ?>', 'error');
+                    }
+                }).render('#cf-paypal-buttons');
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initPayPalButtons);
+            } else {
+                initPayPalButtons();
+            }
+        })();
+        </script>
+        <?php
+        return ob_get_clean();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

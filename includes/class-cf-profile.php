@@ -14,6 +14,8 @@ class CF_Profile {
         add_action( 'wp_ajax_cf_update_profile',       [ $this, 'handle_update_profile' ] );
         add_action( 'wp_ajax_cf_upload_avatar',        [ $this, 'handle_upload_avatar' ] );
         add_action( 'wp_ajax_cf_toggle_favorite',      [ $this, 'handle_toggle_favorite' ] );
+        add_action( 'wp_ajax_cf_get_favorites',        [ $this, 'handle_get_favorites' ] );
+        add_action( 'wp_ajax_nopriv_cf_get_favorites', [ $this, 'handle_get_favorites' ] );
         add_action( 'wp_ajax_cf_log_listening',        [ $this, 'handle_log_listening' ] );
         add_action( 'wp_ajax_cf_get_listening_history',[ $this, 'handle_get_history' ] );
     }
@@ -103,16 +105,42 @@ class CF_Profile {
         ] );
     }
 
-    // ── Toggle Favorite (track or album) ─────────────────────────────────────
+    // ── Toggle Favorite (track, album, or post) ──────────────────────────────
     public function handle_toggle_favorite() {
         check_ajax_referer( 'cf_auth_nonce', 'nonce' );
         if ( ! is_user_logged_in() ) wp_send_json_error( [ 'message' => 'Unauthorized' ] );
 
         $user_id  = get_current_user_id();
         $item_id  = absint( $_POST['item_id'] ?? 0 );
-        $type     = sanitize_key( $_POST['item_type'] ?? 'track' ); // track | album
+        $type     = sanitize_key( $_POST['item_type'] ?? 'track' ); // track | album | post
 
-        $meta_key = $type === 'album' ? 'cf_favorite_albums' : 'cf_favorite_tracks';
+        $post_type_map = [
+            'track' => 'tracks',
+            'album' => 'albums',
+            'post'  => 'post',
+        ];
+
+        if ( ! isset( $post_type_map[ $type ] ) ) {
+            wp_send_json_error( [ 'message' => __( 'Invalid item type.', 'cf-auth' ) ] );
+        }
+
+        if ( ! $item_id ) {
+            wp_send_json_error( [ 'message' => __( 'Invalid item ID.', 'cf-auth' ) ] );
+        }
+
+        $post_type = $post_type_map[ $type ];
+        $post      = get_post( $item_id );
+
+        if ( ! $post || $post->post_type !== $post_type || $post->post_status !== 'publish' ) {
+            wp_send_json_error( [ 'message' => __( 'Item not found.', 'cf-auth' ) ] );
+        }
+
+        $meta_key_map = [
+            'track' => 'cf_favorite_tracks',
+            'album' => 'cf_favorite_albums',
+            'post'  => 'cf_favorite_posts',
+        ];
+        $meta_key  = $meta_key_map[ $type ];
         $favorites = get_user_meta( $user_id, $meta_key, true );
         if ( ! is_array( $favorites ) ) $favorites = [];
 
@@ -128,10 +156,44 @@ class CF_Profile {
 
         update_user_meta( $user_id, $meta_key, array_values( $favorites ) );
 
+        $likes_count = (int) get_post_meta( $item_id, '_cf_total_likes_count', true );
+        if ( $action === 'added' ) {
+            $likes_count++;
+        } else {
+            $likes_count = max( 0, $likes_count - 1 );
+        }
+        update_post_meta( $item_id, '_cf_total_likes_count', $likes_count );
+
         wp_send_json_success( [
             'action'      => $action,
             'is_favorite' => ! $is_favorited,
             'count'       => count( $favorites ),
+            'likes_count' => $likes_count,
+        ] );
+    }
+
+    // ── Get Favorites ─────────────────────────────────────────────────────────
+    public function handle_get_favorites() {
+        check_ajax_referer( 'cf_auth_nonce', 'nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_success( [ 'tracks' => [], 'albums' => [], 'posts' => [] ] );
+        }
+
+        $user_id = get_current_user_id();
+
+        $tracks = get_user_meta( $user_id, 'cf_favorite_tracks', true );
+        $albums = get_user_meta( $user_id, 'cf_favorite_albums', true );
+        $posts  = get_user_meta( $user_id, 'cf_favorite_posts', true );
+
+        if ( ! is_array( $tracks ) ) $tracks = [];
+        if ( ! is_array( $albums ) ) $albums = [];
+        if ( ! is_array( $posts ) )  $posts  = [];
+
+        wp_send_json_success( [
+            'tracks' => array_map( 'intval', $tracks ),
+            'albums' => array_map( 'intval', $albums ),
+            'posts'  => array_map( 'intval', $posts ),
         ] );
     }
 
@@ -193,5 +255,9 @@ class CF_Profile {
             $date = $user->user_registered;
         }
         return date_i18n( get_option( 'date_format' ), strtotime( $date ) );
+    }
+
+    public static function get_likes_count( $post_id ) {
+        return (int) get_post_meta( $post_id, '_cf_total_likes_count', true );
     }
 }

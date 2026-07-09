@@ -26,12 +26,14 @@ require_once CF_AUTH_DIR . 'includes/class-cf-login.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-password.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-profile.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-social-auth.php';
+require_once CF_AUTH_DIR . 'includes/class-cf-donations.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-shortcodes.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-user-menu.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-admin.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-activity-log.php';
+require_once CF_AUTH_DIR . 'includes/class-cf-migration.php';
 
-CF_Activity_Log::init();
+add_action( 'plugins_loaded', [ 'CF_Install', 'maybe_upgrade' ], 5 );
 
 // ── Hide Admin Bar for non-admins immediately ─────────────────────────────────
 add_action( 'init', function() {
@@ -58,5 +60,6 @@ register_deactivation_hook( __FILE__, [ 'CF_Install', 'deactivate' ] );
 function cf_auth_init() {
     CF_Core::get_instance();
     CF_User_Menu::get_instance();
+    CF_Migration::migrate_legacy_favorites();
 }
 add_action( 'plugins_loaded', 'cf_auth_init' );

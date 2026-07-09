@@ -3,24 +3,9 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class CF_Activity_Log {
 
-    const DB_VERSION = '1';
-
     public static function table_name() {
         global $wpdb;
         return $wpdb->prefix . 'cf_auth_activity_log';
-    }
-
-    public static function init() {
-        add_action( 'plugins_loaded', [ __CLASS__, 'maybe_upgrade' ], 5 );
-    }
-
-    public static function maybe_upgrade() {
-        $stored = get_option( 'cf_auth_db_version', '' );
-        if ( $stored === self::DB_VERSION ) {
-            return;
-        }
-        self::create_table();
-        update_option( 'cf_auth_db_version', self::DB_VERSION );
     }
 
     public static function create_table() {

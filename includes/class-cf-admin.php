@@ -23,10 +23,80 @@ class CF_Admin {
 
     public function register_menus() {
         add_menu_page( 'CF Auth', 'CF Auth', 'manage_options', 'cf-auth', [ $this, 'page_overview' ], 'dashicons-groups', 25 );
-        add_submenu_page( 'cf-auth', 'Overview', 'Overview', 'manage_options', 'cf-auth',          [ $this, 'page_overview'  ] );
-        add_submenu_page( 'cf-auth', 'Members',  'Members',  'manage_options', 'cf-auth-members',  [ $this, 'page_members'   ] );
-        add_submenu_page( 'cf-auth', 'Settings', 'Settings', 'manage_options', 'cf-auth-settings', [ $this, 'page_settings'  ] );
-        add_submenu_page( 'cf-auth', 'Activity Log', 'Activity Log', 'manage_options', 'cf-auth-activity', [ $this, 'page_activity' ] );
+
+        /**
+         * Filter the CF Auth admin submenu pages registered under the top-level
+         * 'cf-auth' menu.
+         *
+         * External modules (e.g. future course sales, donations) can append
+         * entries to add their own submenu pages without editing this file.
+         *
+         * Each page is an associative array with these keys:
+         * - slug         (string, required)   Menu slug passed to add_submenu_page().
+         * - page_title   (string, required)   Browser tab / page heading title.
+         * - menu_title   (string, required)   Sidebar menu label.
+         * - capability   (string, optional)   Defaults to 'manage_options'.
+         * - callback     (callable, required) Page render callback.
+         *
+         * @param array $pages Default submenu page definitions.
+         */
+        $pages = apply_filters( 'cf_auth_admin_menu_pages', $this->get_default_admin_pages() );
+
+        foreach ( $pages as $page ) {
+            if ( empty( $page['slug'] ) || empty( $page['callback'] ) ) {
+                continue;
+            }
+            add_submenu_page(
+                'cf-auth',
+                $page['page_title'] ?? $page['menu_title'] ?? '',
+                $page['menu_title'] ?? $page['page_title'] ?? '',
+                $page['capability'] ?? 'manage_options',
+                $page['slug'],
+                $page['callback']
+            );
+        }
+    }
+
+    /**
+     * Default CF Auth admin submenu pages (Overview, Members, Settings, Activity Log).
+     *
+     * Returned array is passed through the 'cf_auth_admin_menu_pages' filter so
+     * external modules can register additional pages under the 'cf-auth' menu.
+     * See register_menus() for the expected array shape per entry.
+     *
+     * @return array[]
+     */
+    private function get_default_admin_pages() {
+        return [
+            [
+                'slug'         => 'cf-auth',
+                'page_title'   => 'Overview',
+                'menu_title'   => 'Overview',
+                'capability'   => 'manage_options',
+                'callback'     => [ $this, 'page_overview' ],
+            ],
+            [
+                'slug'         => 'cf-auth-members',
+                'page_title'   => 'Members',
+                'menu_title'   => 'Members',
+                'capability'   => 'manage_options',
+                'callback'     => [ $this, 'page_members' ],
+            ],
+            [
+                'slug'         => 'cf-auth-settings',
+                'page_title'   => 'Settings',
+                'menu_title'   => 'Settings',
+                'capability'   => 'manage_options',
+                'callback'     => [ $this, 'page_settings' ],
+            ],
+            [
+                'slug'         => 'cf-auth-activity',
+                'page_title'   => 'Activity Log',
+                'menu_title'   => 'Activity Log',
+                'capability'   => 'manage_options',
+                'callback'     => [ $this, 'page_activity' ],
+            ],
+        ];
     }
 
     public function enqueue_assets( $hook ) {
@@ -320,7 +390,7 @@ class CF_Admin {
     // ── Settings ──────────────────────────────────────────────────────────────
     public function page_settings() {
         $tab = sanitize_key($_GET['tab'] ?? 'general');
-        $tabs = ['general'=>'General','social'=>'Social Auth','email'=>'Email','smtp'=>'SMTP Guide'];
+        $tabs = ['general'=>'General','social'=>'Social Auth','paypal'=>'PayPal Donations','email'=>'Email','smtp'=>'SMTP Guide'];
         ?>
         <div class="cf-admin-wrap">
             <div class="cf-admin-header">
@@ -420,7 +490,46 @@ class CF_Admin {
                 </table>
                 <?php endforeach;
 
-                elseif ($tab === 'email'): ?>
+                elseif ($tab === 'paypal'): ?>
+                <div class="cf-box-head"><h2>PayPal Donations</h2></div>
+                <table class="form-table">
+                    <tr><th>PayPal Mode</th>
+                        <td>
+                            <label><input type="radio" name="cf_auth_paypal_mode" value="sandbox" <?php checked( get_option( 'cf_auth_paypal_mode', 'sandbox' ), 'sandbox' ); ?>> Sandbox (Testing)</label><br>
+                            <label><input type="radio" name="cf_auth_paypal_mode" value="live" <?php checked( get_option( 'cf_auth_paypal_mode', 'sandbox' ), 'live' ); ?>> Live (Real Payments)</label>
+                        </td></tr>
+                    <tr><th>Donation Currency</th>
+                        <td><input type="text" name="cf_auth_donation_currency" value="<?php echo esc_attr( get_option( 'cf_auth_donation_currency', 'EUR' ) ); ?>" class="small-text" maxlength="3">
+                        <p class="description">3-letter ISO currency code (e.g. EUR, USD).</p></td></tr>
+                </table>
+                <?php
+                $fields = [
+                    'Sandbox Credentials' => [
+                        [ 'cf_auth_paypal_sandbox_client_id', 'Sandbox Client ID', 'text' ],
+                        [ 'cf_auth_paypal_sandbox_client_secret', 'Sandbox Client Secret', 'password' ],
+                    ],
+                    'Live Credentials' => [
+                        [ 'cf_auth_paypal_live_client_id', 'Live Client ID', 'text' ],
+                        [ 'cf_auth_paypal_live_client_secret', 'Live Client Secret', 'password' ],
+                    ],
+                ];
+                foreach ( $fields as $title => $rows ) : ?>
+                <h3 class="cf-provider-heading"><?php echo $title; ?></h3>
+                <table class="form-table">
+                    <?php foreach ( $rows as [ $opt, $label, $type ] ) : ?>
+                    <tr><th><?php echo $label; ?></th>
+                        <td><input type="<?php echo $type; ?>" name="<?php echo $opt; ?>" value="<?php echo esc_attr( get_option( $opt ) ); ?>" class="regular-text"></td></tr>
+                    <?php endforeach; ?>
+                </table>
+                <?php endforeach; ?>
+                <h3 class="cf-provider-heading">Webhook</h3>
+                <table class="form-table">
+                    <tr><th>Webhook ID</th>
+                        <td><input type="text" name="cf_auth_paypal_webhook_id" value="<?php echo esc_attr( get_option( 'cf_auth_paypal_webhook_id' ) ); ?>" class="regular-text">
+                        <p class="description">You'll get this ID in Phase 2 when we register the webhook — leave empty for now.</p></td></tr>
+                </table>
+
+                <?php elseif ($tab === 'email'): ?>
                 <div class="cf-box-head"><h2>Email Settings</h2></div>
                 <p class="description" style="padding:0 0 16px">CF Auth sends emails via WordPress <code>wp_mail()</code>. Configure SMTP in the <a href="<?php echo add_query_arg('tab','smtp'); ?>">SMTP Guide tab</a> for reliable delivery.</p>
                 <table class="form-table">
@@ -582,6 +691,7 @@ class CF_Admin {
                     'source'     => 'members_suspend_action',
                 ],
             ] );
+            do_action( 'cf_auth_account_status_changed', $uid, $status, $old_status );
         }
         wp_send_json_success(['message'=>"User {$status}.",'new_status'=>$status]);
     }
@@ -668,6 +778,11 @@ class CF_Admin {
             'cf_auth_discord_client_id','cf_auth_discord_client_secret',
             'cf_auth_twitter_api_key','cf_auth_twitter_api_secret',
             'cf_auth_email_from_name','cf_auth_email_from',
+            'cf_auth_paypal_mode',
+            'cf_auth_paypal_sandbox_client_id','cf_auth_paypal_sandbox_client_secret',
+            'cf_auth_paypal_live_client_id','cf_auth_paypal_live_client_secret',
+            'cf_auth_paypal_webhook_id',
+            'cf_auth_donation_currency',
         ];
         foreach ($allowed as $key) {
             if (isset($_POST[$key])) update_option($key, sanitize_text_field($_POST[$key]));
