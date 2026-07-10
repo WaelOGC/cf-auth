@@ -18,6 +18,7 @@
 
 body.toplevel_page_cf-auth .cf-admin-wrap,
 body.cf-auth_page_cf-auth-members .cf-admin-wrap,
+body.cf-auth_page_cf-auth-donations .cf-admin-wrap,
 body.cf-auth_page_cf-auth-settings .cf-admin-wrap,
 body.cf-auth_page_cf-auth-activity .cf-admin-wrap {
 
@@ -47,9 +48,16 @@ body.cf-auth_page_cf-auth-activity .cf-admin-wrap {
 
 	/* Box headings */
 	.cf-box-head h2,
+	.cf-card-header h2,
+	.cf-card-header h3,
 	.cf-provider-heading,
 	.cf-guide-step h4,
 	.cf-modal-head h3 {
+		font-family: "Space Mono", Consolas, Monaco, monospace;
+	}
+
+	.cf-metric-value {
+		color: var(--cf-primary);
 		font-family: "Space Mono", Consolas, Monaco, monospace;
 	}
 
@@ -131,32 +139,46 @@ body.cf-auth_page_cf-auth-activity .cf-admin-wrap {
 		font-family: "Space Mono", Consolas, Monaco, monospace;
 	}
 
-	/* Activity log event badges */
+	/* Activity log / generic badges */
+	.cf-badge,
 	.cf-event-badge {
-		display: inline-flex;
-		align-items: center;
-		padding: 3px 10px;
-		border-radius: 20px;
+		font-family: "Space Mono", Consolas, Monaco, monospace;
 		font-size: 10px;
-		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.3px;
-		font-family: "Space Mono", Consolas, Monaco, monospace;
 	}
 
+	.cf-badge-success,
 	.cf-event-positive {
 		background: var(--cf-gold-tint);
 		color: var(--cf-badge-text);
 	}
 
+	.cf-badge-danger,
 	.cf-event-danger {
 		background: rgba(214, 54, 56, 0.1);
 		color: #d63638;
 	}
 
+	.cf-badge-neutral,
 	.cf-event-neutral {
 		background: #f3f4f6;
 		color: #555;
+	}
+
+	.cf-badge-warning {
+		background: #fef9c3;
+		color: #854d0e;
+	}
+
+	.cf-badge-accent {
+		background: var(--cf-gold-tint);
+		color: var(--cf-badge-text);
+	}
+
+	.cf-mode-option:has(input:checked) {
+		border-color: var(--cf-primary);
+		background: var(--cf-gold-tint);
 	}
 }
 
@@ -203,6 +225,7 @@ body.cf-auth_page_cf-auth-settings .cf-admin-header {
 }
 
 body.cf-auth_page_cf-auth-settings .cf-tab-nav + .cf-admin-box,
+body.cf-auth_page_cf-auth-settings .cf-tab-nav + .cf-card,
 body.cf-auth_page_cf-auth-settings .cf-tab-nav + #cf-settings-form,
 body.cf-auth_page_cf-auth-settings .cf-tab-nav + form {
 	border-radius: 0 0 10px 10px;

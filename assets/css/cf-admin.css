@@ -110,3 +110,190 @@
 .cf-modal-avatar-wrap { display:flex; align-items:center; gap:12px; margin-bottom:20px; padding:14px; background:#f9fafb; border-radius:8px; }
 .cf-modal-foot { display:flex; gap:8px; margin-top:16px; }
 .cf-edit-table th { padding:10px 0; font-size:13px; }
+
+/* ── Component library ───────────────────────────────────────────────────── */
+
+.cf-card {
+	background:#fff;
+	border:1px solid #e5e7eb;
+	border-radius:12px;
+	padding:20px;
+	margin-bottom:16px;
+	box-shadow:0 1px 3px rgba(0,0,0,.06);
+}
+.cf-card.cf-card-flush { padding:0; overflow:hidden; }
+.cf-card.cf-card-flush .cf-card-header { padding:16px 20px; margin-bottom:0; border-bottom:1px solid #f0f0f0; }
+.cf-card.cf-card-flush .cf-table { margin:0; }
+
+.cf-card-header {
+	display:flex;
+	align-items:center;
+	gap:10px;
+	margin-bottom:16px;
+}
+.cf-card-header .dashicons {
+	font-size:20px;
+	width:20px;
+	height:20px;
+	color:var(--gold-dim);
+	flex-shrink:0;
+}
+.cf-card-header h2,
+.cf-card-header h3 {
+	font-size:15px;
+	font-weight:500;
+	margin:0;
+	color:#1d2327;
+}
+.cf-card-header .cf-badge { margin-left:auto; flex-shrink:0; }
+.cf-card-header .cf-box-link { margin-left:auto; font-size:12px; }
+
+.cf-badge {
+	display:inline-flex;
+	align-items:center;
+	padding:3px 10px;
+	border-radius:999px;
+	font-size:11px;
+	font-weight:600;
+	line-height:1.4;
+	white-space:nowrap;
+}
+.cf-badge-success { background:#dcfce7; color:#16a34a; }
+.cf-badge-warning { background:#fef9c3; color:#854d0e; }
+.cf-badge-danger  { background:#fee2e2; color:#dc2626; }
+.cf-badge-accent  { background:#FFF7E6; color:#9a7200; }
+.cf-badge-neutral { background:#f3f4f6; color:#555; }
+
+.cf-metric-grid {
+	display:grid;
+	grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+	gap:12px;
+	margin-bottom:16px;
+}
+.cf-metric-card {
+	background:#f9fafb;
+	border:1px solid #e5e7eb;
+	border-radius:10px;
+	padding:16px;
+}
+.cf-metric-label {
+	font-size:12px;
+	color:#888;
+	margin-bottom:4px;
+}
+.cf-metric-value {
+	font-size:24px;
+	font-weight:500;
+	color:var(--gold);
+	line-height:1.2;
+}
+
+.cf-field-group { margin-bottom:16px; }
+.cf-field-group:last-child { margin-bottom:0; }
+.cf-field-group > label:not(.cf-mode-option) {
+	display:block;
+	font-size:13px;
+	font-weight:500;
+	margin-bottom:6px;
+	color:#1d2327;
+}
+.cf-field-group .description {
+	font-size:12px;
+	color:#888;
+	margin-top:4px;
+	margin-bottom:0;
+}
+.cf-field-group input[type="text"],
+.cf-field-group input[type="url"],
+.cf-field-group input[type="email"],
+.cf-field-group input[type="password"],
+.cf-field-group textarea,
+.cf-field-group select {
+	max-width:100%;
+}
+
+.cf-mode-toggle {
+	display:flex;
+	gap:8px;
+	flex-wrap:wrap;
+}
+.cf-mode-option {
+	display:inline-flex;
+	align-items:center;
+	gap:8px;
+	padding:10px 16px;
+	border:1px solid #e5e7eb;
+	border-radius:999px;
+	cursor:pointer;
+	font-size:13px;
+	font-weight:500;
+	color:#374151;
+	background:#fff;
+	transition:border-color .15s, background .15s;
+	margin:0;
+}
+.cf-mode-option input[type="radio"] {
+	margin:0;
+	accent-color:var(--gold);
+}
+.cf-mode-option:has(input:checked) {
+	border-color:var(--gold);
+	background:#FFF7E6;
+	color:#1d2327;
+}
+
+.cf-list-rows { display:flex; flex-direction:column; }
+.cf-list-row {
+	display:flex;
+	align-items:center;
+	gap:12px;
+	padding:12px 0;
+	border-bottom:1px solid #f9fafb;
+}
+.cf-list-row:last-child { border-bottom:none; }
+.cf-list-row-body { flex:1; min-width:0; }
+.cf-list-row-meta {
+	font-size:12px;
+	color:#888;
+	white-space:nowrap;
+	flex-shrink:0;
+}
+
+.cf-avatar-circle {
+	width:36px;
+	height:36px;
+	border-radius:50%;
+	display:flex;
+	align-items:center;
+	justify-content:center;
+	font-size:13px;
+	font-weight:700;
+	flex-shrink:0;
+	text-transform:uppercase;
+	letter-spacing:.3px;
+}
+.cf-avatar-0 { background:#FFF7E6; color:#9a7200; }
+.cf-avatar-1 { background:#F0FDF4; color:#16a34a; }
+.cf-avatar-2 { background:#EFF6FF; color:#2563eb; }
+.cf-avatar-3 { background:#F5F3FF; color:#7c3aed; }
+
+.cf-tbl-message {
+	font-size:12px;
+	color:#888;
+	word-break:break-word;
+	white-space:normal;
+}
+
+.cf-chart-wrap {
+	position:relative;
+	height:220px;
+}
+.cf-chart-wrap canvas {
+	max-height:220px;
+}
+
+.cf-settings-cards .cf-card:last-of-type { margin-bottom:0; }
+.cf-settings-cards .submit { margin-top:8px; padding-left:0; }
+.cf-settings-cards .cf-callback-info { margin:0 0 16px; }
+.cf-card .cf-smtp-guide { padding:0; }
+.cf-card .cf-provider-row { padding-left:0; padding-right:0; }

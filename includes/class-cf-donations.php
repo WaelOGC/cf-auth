@@ -16,6 +16,7 @@ class CF_Donations {
         add_action( 'wp_ajax_cf_paypal_capture_order',        [ $this, 'handle_capture_order' ] );
         add_action( 'wp_ajax_nopriv_cf_paypal_capture_order', [ $this, 'handle_capture_order' ] );
         add_action( 'rest_api_init',                          [ $this, 'register_webhook_route' ] );
+        add_action( 'cf_auth_donation_completed',             [ $this, 'log_donation_activity' ], 10, 2 );
     }
 
     // ── PayPal config helpers ─────────────────────────────────────────────────
@@ -272,6 +273,7 @@ class CF_Donations {
                 'meta' => [
                     'paypal_order_id' => $paypal_order_id,
                     'reason'          => 'missing_capture_structure',
+                    'raw_response'    => wp_remote_retrieve_body( $capture_response ),
                 ],
             ] );
             wp_send_json_error( [ 'message' => __( 'Unable to process donation. Please try again later.', 'cf-auth' ) ] );
@@ -281,13 +283,14 @@ class CF_Donations {
         $capture_status = $capture['status'] ?? '';
         $amount_value  = $capture['amount']['value'] ?? '';
         $currency_code = $capture['amount']['currency_code'] ?? '';
-        $custom_id     = $unit['custom_id'] ?? '';
+        $custom_id     = $capture['custom_id'] ?? '';
 
         if ( ! $capture_id || ! $capture_status || $amount_value === '' || ! $currency_code || ! $custom_id ) {
             CF_Activity_Log::safe_log( 'paypal_capture_error', [
                 'meta' => [
                     'paypal_order_id' => $paypal_order_id,
                     'reason'          => 'missing_capture_fields',
+                    'raw_response'    => wp_remote_retrieve_body( $capture_response ),
                 ],
             ] );
             wp_send_json_error( [ 'message' => __( 'Unable to process donation. Please try again later.', 'cf-auth' ) ] );
@@ -348,6 +351,26 @@ class CF_Donations {
         }
 
         return false;
+    }
+
+    public function log_donation_activity( $donation_id, $data ) {
+        global $wpdb;
+        $table = $wpdb->prefix . 'cf_donations';
+        $row   = $wpdb->get_row( $wpdb->prepare(
+            "SELECT donor_name, user_id FROM {$table} WHERE id = %d",
+            $donation_id
+        ) );
+        CF_Activity_Log::safe_log( 'donation_completed', [
+            'user_id' => $row ? $row->user_id : null,
+            'email'   => null,
+            'meta'    => [
+                'donation_id' => $donation_id,
+                'donor_name'  => $row ? $row->donor_name : null,
+                'amount'      => $data['amount'] ?? null,
+                'currency'    => $data['currency'] ?? null,
+                'capture_id'  => $data['capture_id'] ?? null,
+            ],
+        ] );
     }
 
     // ── PayPal webhook (REST) ─────────────────────────────────────────────────

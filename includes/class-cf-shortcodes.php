@@ -409,7 +409,10 @@ class CF_Shortcodes {
         <script>
         (function () {
             'use strict';
-            var CF = window.CF_AUTH || {};
+
+            function getCF() {
+                return window.CF_AUTH || {};
+            }
 
             function showMessage(text, type) {
                 var el = document.getElementById('cf-donation-message');
@@ -443,13 +446,14 @@ class CF_Shortcodes {
             }
 
             function postAction(action, data) {
+                var cf = getCF();
                 var body = new FormData();
                 body.append('action', action);
-                body.append('nonce', CF.nonce || '');
+                body.append('nonce', cf.nonce || '');
                 Object.keys(data).forEach(function (key) {
                     body.append(key, data[key]);
                 });
-                return fetch(CF.ajax_url, { method: 'POST', body: body, credentials: 'same-origin' })
+                return fetch(cf.ajax_url, { method: 'POST', body: body, credentials: 'same-origin' })
                     .then(function (r) { return r.json(); });
             }
 
@@ -465,6 +469,11 @@ class CF_Shortcodes {
 
                 paypal.Buttons({
                     createOrder: function () {
+                        var cf = getCF();
+                        if (!cf.ajax_url) {
+                            return Promise.reject(new Error('CF Auth not loaded'));
+                        }
+
                         var amountEl = document.getElementById('cf-donation-amount');
                         var amount = parseFloat(amountEl ? amountEl.value : '');
                         if (isNaN(amount) || amount <= 0) {

@@ -181,22 +181,28 @@ class CF_Activity_Log {
     public static function event_badge_class( $event_type, $meta_json = '' ) {
         $meta = $meta_json ? json_decode( $meta_json, true ) : [];
 
-        if ( in_array( $event_type, [ 'login_success', 'registered' ], true ) ) {
-            return 'cf-event-badge cf-event-positive';
+        if ( in_array( $event_type, [ 'login_success', 'registered', 'donation_completed' ], true ) ) {
+            return 'cf-badge cf-badge-success';
         }
 
-        if ( $event_type === 'login_failed' ) {
-            return 'cf-event-badge cf-event-danger';
+        if ( $event_type === 'login_failed'
+            || strpos( $event_type, '_error' ) !== false
+            || $event_type === 'paypal_webhook_verification_failed' ) {
+            return 'cf-badge cf-badge-danger';
         }
 
         if ( $event_type === 'status_changed' ) {
             $new_status = $meta['new_status'] ?? '';
             if ( $new_status === 'suspended' ) {
-                return 'cf-event-badge cf-event-danger';
+                return 'cf-badge cf-badge-danger';
             }
-            return 'cf-event-badge cf-event-neutral';
+            return 'cf-badge cf-badge-neutral';
         }
 
-        return 'cf-event-badge cf-event-neutral';
+        if ( strpos( $event_type, 'unmatched' ) !== false ) {
+            return 'cf-badge cf-badge-warning';
+        }
+
+        return 'cf-badge cf-badge-neutral';
     }
 }
