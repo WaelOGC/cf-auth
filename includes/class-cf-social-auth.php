@@ -15,11 +15,35 @@ class CF_Social_Auth {
         add_action( 'wp_ajax_nopriv_cf_social_init', [ $this, 'handle_social_init' ] );
     }
 
+    private function is_provider_enabled( $provider ) {
+        $keys = [
+            'google'   => 'cf_auth_google_enabled',
+            'facebook' => 'cf_auth_facebook_enabled',
+            'discord'  => 'cf_auth_discord_enabled',
+            'twitter'  => 'cf_auth_twitter_enabled',
+        ];
+
+        if ( ! isset( $keys[ $provider ] ) ) {
+            return false;
+        }
+
+        return get_option( $keys[ $provider ], '1' ) === '1';
+    }
+
     // ── Start OAuth Flow ──────────────────────────────────────────────────────
     public function handle_social_init() {
         check_ajax_referer( 'cf_auth_nonce', 'nonce' );
         $provider = sanitize_key( $_POST['provider'] ?? '' );
-        $url      = $this->get_auth_url( $provider );
+
+        if ( ! $this->is_provider_enabled( $provider ) ) {
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'provider' => $provider,
+                'meta'     => [ 'reason' => 'provider_disabled' ],
+            ] );
+            wp_send_json_error( [ 'message' => __( 'This login option is not available.', 'cf-auth' ) ] );
+        }
+
+        $url = $this->get_auth_url( $provider );
 
         if ( ! $url ) {
             CF_Activity_Log::safe_log( 'login_failed', [
@@ -103,6 +127,15 @@ class CF_Social_Auth {
         if ( ! isset( $_GET['cf_oauth'] ) ) return;
 
         $provider = sanitize_key( $_GET['cf_oauth'] );
+
+        if ( ! $this->is_provider_enabled( $provider ) ) {
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'provider' => $provider,
+                'meta'     => [ 'reason' => 'provider_disabled' ],
+            ] );
+            wp_safe_redirect( home_url( '/cf-login?error=' . urlencode( __( 'This login option is not available.', 'cf-auth' ) ) ) );
+            exit;
+        }
 
         if ( ! isset( $_GET['code'] ) ) {
             CF_Activity_Log::safe_log( 'login_failed', [

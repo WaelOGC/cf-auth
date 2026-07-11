@@ -117,8 +117,16 @@ class CF_Admin {
         ];
         if ( ! in_array( $hook, $screens, true ) ) return;
 
-        wp_enqueue_style(  'cf-auth-admin',          CF_AUTH_URL . 'assets/css/cf-admin.css',               [], CF_AUTH_VERSION );
-        wp_enqueue_style(  'cf-auth-admin-branding', CF_AUTH_URL . 'assets/css/cf-auth-admin-branding.css', ['cf-auth-admin'], CF_AUTH_VERSION );
+        // Append filemtime so CSS/JS cache bust even when CF_AUTH_VERSION is unchanged between deploys.
+        $admin_css_path      = CF_AUTH_DIR . 'assets/css/cf-admin.css';
+        $admin_branding_path = CF_AUTH_DIR . 'assets/css/cf-auth-admin-branding.css';
+        $admin_js_path       = CF_AUTH_DIR . 'assets/js/cf-admin.js';
+        $admin_css_ver       = CF_AUTH_VERSION . '.' . ( file_exists( $admin_css_path ) ? filemtime( $admin_css_path ) : '0' );
+        $admin_branding_ver  = CF_AUTH_VERSION . '.' . ( file_exists( $admin_branding_path ) ? filemtime( $admin_branding_path ) : '0' );
+        $admin_js_ver        = CF_AUTH_VERSION . '.' . ( file_exists( $admin_js_path ) ? filemtime( $admin_js_path ) : '0' );
+
+        wp_enqueue_style(  'cf-auth-admin',          CF_AUTH_URL . 'assets/css/cf-admin.css',               [], $admin_css_ver );
+        wp_enqueue_style(  'cf-auth-admin-branding', CF_AUTH_URL . 'assets/css/cf-auth-admin-branding.css', ['cf-auth-admin'], $admin_branding_ver );
 
         $script_deps = [ 'jquery' ];
         if ( $hook === 'cf-auth_page_cf-auth-donations' ) {
@@ -144,7 +152,7 @@ class CF_Admin {
             );
         }
 
-        wp_enqueue_script( 'cf-auth-admin', CF_AUTH_URL . 'assets/js/cf-admin.js', $script_deps, CF_AUTH_VERSION, true );
+        wp_enqueue_script( 'cf-auth-admin', CF_AUTH_URL . 'assets/js/cf-admin.js', $script_deps, $admin_js_ver, true );
         wp_localize_script( 'cf-auth-admin', 'CF_ADMIN', [
             'ajax_url' => admin_url( 'admin-ajax.php' ),
             'nonce'    => wp_create_nonce( 'cf_admin_nonce' ),
@@ -710,19 +718,19 @@ class CF_Admin {
                 </div>
                 <?php
                 $providers = [
-                    'Google OAuth'      => [ 'icon' => 'dashicons-google', 'fields' => [
+                    'Google OAuth'      => [ 'icon' => 'dashicons-google', 'enabled' => 'cf_auth_google_enabled', 'fields' => [
                         ['cf_auth_google_client_id','Client ID','text'],
                         ['cf_auth_google_client_secret','Client Secret','password'],
                     ]],
-                    'Facebook App'      => [ 'icon' => 'dashicons-facebook-alt', 'fields' => [
+                    'Facebook App'      => [ 'icon' => 'dashicons-facebook-alt', 'enabled' => 'cf_auth_facebook_enabled', 'fields' => [
                         ['cf_auth_facebook_app_id','App ID','text'],
                         ['cf_auth_facebook_app_secret','App Secret','password'],
                     ]],
-                    'Discord OAuth'     => [ 'icon' => 'dashicons-format-chat', 'fields' => [
+                    'Discord OAuth'     => [ 'icon' => 'dashicons-format-chat', 'enabled' => 'cf_auth_discord_enabled', 'fields' => [
                         ['cf_auth_discord_client_id','Client ID','text'],
                         ['cf_auth_discord_client_secret','Client Secret','password'],
                     ]],
-                    'X / Twitter OAuth' => [ 'icon' => 'dashicons-twitter', 'fields' => [
+                    'X / Twitter OAuth' => [ 'icon' => 'dashicons-twitter', 'enabled' => 'cf_auth_twitter_enabled', 'fields' => [
                         ['cf_auth_twitter_api_key','API Key (Client ID)','text'],
                         ['cf_auth_twitter_api_secret','API Secret','password'],
                     ]],
@@ -732,6 +740,14 @@ class CF_Admin {
                     <div class="cf-card-header">
                         <span class="dashicons <?php echo esc_attr( $config['icon'] ); ?>"></span>
                         <h2><?php echo esc_html( $title ); ?></h2>
+                        <label class="cf-toggle-switch" title="<?php esc_attr_e( 'Show this login option to users', 'cf-auth' ); ?>">
+                            <input type="checkbox" name="<?php echo esc_attr( $config['enabled'] ); ?>" value="1" <?php checked( get_option( $config['enabled'], '1' ), '1' ); ?>>
+                            <span class="cf-toggle-slider" aria-hidden="true"></span>
+                            <span class="cf-toggle-label-wrap">
+                                <span class="cf-toggle-label"><?php esc_html_e( 'Enabled', 'cf-auth' ); ?></span>
+                                <span class="cf-toggle-hint"><?php esc_html_e( 'Show this login option to users', 'cf-auth' ); ?></span>
+                            </span>
+                        </label>
                     </div>
                     <?php foreach ( $config['fields'] as [ $opt, $label, $type ] ) : ?>
                     <div class="cf-field-group">
@@ -1098,9 +1114,13 @@ class CF_Admin {
             'cf_auth_login_redirect','cf_auth_logout_redirect','cf_auth_after_register',
             'cf_auth_email_verification',
             'cf_auth_google_client_id','cf_auth_google_client_secret',
+            'cf_auth_google_enabled',
             'cf_auth_facebook_app_id','cf_auth_facebook_app_secret',
+            'cf_auth_facebook_enabled',
             'cf_auth_discord_client_id','cf_auth_discord_client_secret',
+            'cf_auth_discord_enabled',
             'cf_auth_twitter_api_key','cf_auth_twitter_api_secret',
+            'cf_auth_twitter_enabled',
             'cf_auth_email_from_name','cf_auth_email_from',
             'cf_auth_paypal_mode',
             'cf_auth_paypal_sandbox_client_id','cf_auth_paypal_sandbox_client_secret',
@@ -1112,6 +1132,9 @@ class CF_Admin {
             if (isset($_POST[$key])) update_option($key, sanitize_text_field($_POST[$key]));
         }
         if (!isset($_POST['cf_auth_email_verification'])) update_option('cf_auth_email_verification','0');
+        foreach ( [ 'cf_auth_google_enabled', 'cf_auth_facebook_enabled', 'cf_auth_discord_enabled', 'cf_auth_twitter_enabled' ] as $key ) {
+            if ( ! isset( $_POST[ $key ] ) ) update_option( $key, '0' );
+        }
 
         wp_send_json_success(['message'=>'Settings saved successfully.']);
     }

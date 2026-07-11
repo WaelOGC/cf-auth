@@ -112,8 +112,11 @@
         e.preventDefault();
         const data = {};
         $(this).serializeArray().forEach(({name,value}) => data[name]=value);
-        // Handle unchecked checkbox
+        // Handle unchecked checkboxes
         if (!data['cf_auth_email_verification']) data['cf_auth_email_verification'] = '0';
+        ['cf_auth_google_enabled','cf_auth_facebook_enabled','cf_auth_discord_enabled','cf_auth_twitter_enabled'].forEach(key => {
+            if (!data[key]) data[key] = '0';
+        });
 
         const $btn = $('#cf-save-btn').text('Saving...').prop('disabled',true);
         adminPost('cf_save_settings', data, function(d) {

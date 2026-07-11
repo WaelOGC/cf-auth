@@ -3,7 +3,7 @@
  * Plugin Name: CF Auth — Collective Finity
  * Plugin URI:  https://collectivefinity.com
  * Description: Custom authentication system for Collective Finity — Register, Login, Social OAuth, User Profiles & Admin Dashboard.
- * Version:     2.0.0
+ * Version:     2.0.2-fix1
  * Author:      Collective Finity
  * Text Domain: cf-auth
  * License:     GPL-2.0+
@@ -12,7 +12,7 @@
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 // ── Constants ────────────────────────────────────────────────────────────────
-define( 'CF_AUTH_VERSION',   '2.0.1' );
+define( 'CF_AUTH_VERSION',   '2.0.2-fix1' );
 define( 'CF_AUTH_DIR',       plugin_dir_path( __FILE__ ) );
 define( 'CF_AUTH_URL',       plugin_dir_url( __FILE__ ) );
 define( 'CF_AUTH_TEMPLATES', CF_AUTH_DIR . 'templates/' );
