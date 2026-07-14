@@ -27,6 +27,7 @@ class CF_Core {
         CF_Login::get_instance();
         CF_Password::get_instance();
         CF_Profile::get_instance();
+        CF_Playlists::get_instance();
         CF_Social_Auth::get_instance();
         CF_Donations::get_instance();
         CF_Shortcodes::get_instance();

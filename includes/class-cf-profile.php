@@ -18,6 +18,8 @@ class CF_Profile {
         add_action( 'wp_ajax_nopriv_cf_get_favorites', [ $this, 'handle_get_favorites' ] );
         add_action( 'wp_ajax_cf_log_listening',        [ $this, 'handle_log_listening' ] );
         add_action( 'wp_ajax_cf_get_listening_history',[ $this, 'handle_get_history' ] );
+        add_action( 'wp_ajax_cf_refresh_nonces',       [ $this, 'handle_refresh_nonces' ] );
+        add_action( 'wp_ajax_cf_delete_account',       [ $this, 'handle_delete_account' ] );
     }
 
     // ── Update Profile ────────────────────────────────────────────────────────
@@ -207,10 +209,34 @@ class CF_Profile {
         $track_id = absint( $_POST['track_id'] ?? 0 );
         if ( ! $track_id ) wp_send_json_error();
 
-        $wpdb->insert( $wpdb->prefix . 'cf_listening_history', [
-            'user_id'  => $user_id,
-            'track_id' => $track_id,
-        ] );
+        $table = $wpdb->prefix . 'cf_listening_history';
+        $cutoff = gmdate( 'Y-m-d H:i:s', time() - 5 * MINUTE_IN_SECONDS );
+        $existing_id = $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM {$table}
+             WHERE user_id = %d AND track_id = %d AND listened_at >= %s
+             ORDER BY listened_at DESC LIMIT 1",
+            $user_id,
+            $track_id,
+            $cutoff
+        ) );
+
+        $now = current_time( 'mysql', true );
+
+        if ( $existing_id ) {
+            $wpdb->update(
+                $table,
+                [ 'listened_at' => $now ],
+                [ 'id' => (int) $existing_id ],
+                [ '%s' ],
+                [ '%d' ]
+            );
+        } else {
+            $wpdb->insert( $table, [
+                'user_id'     => $user_id,
+                'track_id'    => $track_id,
+                'listened_at' => $now,
+            ] );
+        }
 
         wp_send_json_success();
     }
@@ -228,10 +254,80 @@ class CF_Profile {
             "SELECT track_id, listened_at FROM {$wpdb->prefix}cf_listening_history
              WHERE user_id = %d ORDER BY listened_at DESC LIMIT %d",
             $user_id,
-            $limit
+            $limit * 3
         ) );
 
-        wp_send_json_success( [ 'history' => $rows ] );
+        $history = [];
+        foreach ( $rows as $row ) {
+            if ( count( $history ) >= $limit ) {
+                break;
+            }
+
+            $post = get_post( (int) $row->track_id );
+            if ( ! $post || $post->post_type !== 'tracks' || $post->post_status !== 'publish' ) {
+                continue;
+            }
+
+            $history[] = [
+                'track_id'    => (int) $row->track_id,
+                'listened_at' => $row->listened_at,
+                'title'       => $post->post_title,
+                'url'         => get_permalink( $post ),
+                'cover'       => self::get_release_cover_url( $post, 'track' ),
+            ];
+        }
+
+        wp_send_json_success( [ 'history' => $history ] );
+    }
+
+    // ── Refresh AJAX Nonces ───────────────────────────────────────────────────
+    public function handle_refresh_nonces() {
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => 'Unauthorized' ] );
+        }
+
+        wp_send_json_success( [
+            'auth_nonce'        => wp_create_nonce( 'cf_auth_nonce' ),
+            'interaction_nonce' => wp_create_nonce( 'cf_interaction_nonce' ),
+        ] );
+    }
+
+    // ── Delete Account (self-service) ───────────────────────────────────────────
+    public function handle_delete_account() {
+        check_ajax_referer( 'cf_auth_nonce', 'nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => __( 'Unauthorized', 'cf-auth' ) ] );
+        }
+
+        $confirm_email = sanitize_email( $_POST['confirm_email'] ?? '' );
+        $user          = wp_get_current_user();
+        if ( strcasecmp( $confirm_email, $user->user_email ) !== 0 ) {
+            wp_send_json_error( [ 'message' => __( 'Email does not match your account.', 'cf-auth' ) ] );
+        }
+
+        $user_id = $user->ID;
+
+        global $wpdb;
+        $playlists_table = $wpdb->prefix . 'cf_playlists';
+        $items_table     = $wpdb->prefix . 'cf_playlist_items';
+        $playlist_ids    = $wpdb->get_col( $wpdb->prepare(
+            "SELECT id FROM {$playlists_table} WHERE user_id = %d",
+            $user_id
+        ) );
+        if ( $playlist_ids ) {
+            $in = implode( ',', array_map( 'intval', $playlist_ids ) );
+            $wpdb->query( "DELETE FROM {$items_table} WHERE playlist_id IN ({$in})" );
+            $wpdb->query( "DELETE FROM {$playlists_table} WHERE user_id = " . (int) $user_id );
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/user.php';
+        $deleted = wp_delete_user( $user_id );
+
+        if ( ! $deleted ) {
+            wp_send_json_error( [ 'message' => __( 'Could not delete account. Please try again or contact support.', 'cf-auth' ) ] );
+        }
+
+        wp_send_json_success( [ 'redirect' => home_url( '/' ) ] );
     }
 
     // ── Static Helpers ────────────────────────────────────────────────────────
@@ -259,5 +355,69 @@ class CF_Profile {
 
     public static function get_likes_count( $post_id ) {
         return (int) get_post_meta( $post_id, '_cf_total_likes_count', true );
+    }
+
+    public static function get_release_cover_url( WP_Post $post, string $type ): string {
+        if ( $type === 'track' ) {
+            $cover_url = get_post_meta( $post->ID, 'track_cover_url', true );
+            if ( ! empty( $cover_url ) ) {
+                return $cover_url;
+            }
+
+            $associated_album = get_post_meta( $post->ID, 'associated_album', true );
+            if ( $associated_album ) {
+                $cover_url = get_the_post_thumbnail_url( (int) $associated_album, 'medium' );
+                if ( ! empty( $cover_url ) ) {
+                    return $cover_url;
+                }
+            }
+
+            $cover_url = get_the_post_thumbnail_url( $post->ID, 'medium' );
+            if ( ! empty( $cover_url ) ) {
+                return $cover_url;
+            }
+        } elseif ( $type === 'post' ) {
+            $cover_url = get_the_post_thumbnail_url( $post->ID, 'medium' );
+            if ( ! empty( $cover_url ) ) {
+                return $cover_url;
+            }
+        } elseif ( $type === 'album' ) {
+            $cover_url = get_the_post_thumbnail_url( $post->ID, 'medium' );
+            if ( ! empty( $cover_url ) ) {
+                return $cover_url;
+            }
+
+            $album_tracks = get_posts(
+                [
+                    'post_type'      => 'tracks',
+                    'posts_per_page' => -1,
+                    'post_status'    => 'publish',
+                    'orderby'        => [
+                        'menu_order' => 'ASC',
+                        'title'      => 'ASC',
+                    ],
+                    'meta_query'     => [
+                        [
+                            'key'     => 'associated_album',
+                            'value'   => $post->ID,
+                            'compare' => '=',
+                        ],
+                    ],
+                ]
+            );
+
+            foreach ( $album_tracks as $track ) {
+                $cover_url = get_post_meta( $track->ID, 'track_cover_url', true );
+                if ( ! empty( $cover_url ) ) {
+                    return $cover_url;
+                }
+            }
+        }
+
+        if ( function_exists( 'collective_finity_default_art_url' ) ) {
+            return collective_finity_default_art_url();
+        }
+
+        return '';
     }
 }

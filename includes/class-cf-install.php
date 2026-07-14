@@ -3,7 +3,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class CF_Install {
 
-    const DB_VERSION = '2';
+    const DB_VERSION = '3';
 
     public static function activate() {
         self::create_tables();
@@ -27,6 +27,7 @@ class CF_Install {
         self::create_tables();
         CF_Activity_Log::create_table();
         update_option( 'cf_auth_db_version', self::DB_VERSION );
+        self::create_pages();
     }
 
     /**
@@ -106,12 +107,38 @@ class CF_Install {
             INDEX idx_created_at (created_at)
         ) $charset;";
 
+        // Playlists
+        $sql6 = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}cf_playlists (
+            id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id      BIGINT UNSIGNED NOT NULL,
+            name         VARCHAR(190)    NOT NULL,
+            is_public    TINYINT(1)      NOT NULL DEFAULT 0,
+            share_token  VARCHAR(32)     NOT NULL,
+            created_at   DATETIME        DEFAULT CURRENT_TIMESTAMP,
+            updated_at   DATETIME        DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_user_id (user_id),
+            UNIQUE KEY idx_share_token (share_token)
+        ) $charset;";
+
+        $sql7 = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}cf_playlist_items (
+            id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            playlist_id  BIGINT UNSIGNED NOT NULL,
+            item_id      BIGINT UNSIGNED NOT NULL,
+            item_type    VARCHAR(10)     NOT NULL,
+            position     INT UNSIGNED    NOT NULL DEFAULT 0,
+            added_at     DATETIME        DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_playlist (playlist_id),
+            UNIQUE KEY unique_item (playlist_id, item_id, item_type)
+        ) $charset;";
+
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta( $sql1 );
         dbDelta( $sql2 );
         dbDelta( $sql3 );
         dbDelta( $sql4 );
         dbDelta( $sql5 );
+        dbDelta( $sql6 );
+        dbDelta( $sql7 );
     }
 
     // ── Custom Role ───────────────────────────────────────────────────────────
@@ -132,6 +159,7 @@ class CF_Install {
             'cf-forgot-password'=> [ 'title' => 'Forgot Password', 'shortcode' => '[cf_forgot_password]' ],
             'cf-reset-password' => [ 'title' => 'Reset Password',  'shortcode' => '[cf_reset_password]' ],
             'cf-profile'        => [ 'title' => 'My Profile',      'shortcode' => '[cf_user_profile]' ],
+            'cf-playlist'       => [ 'title' => 'Playlist',        'shortcode' => '[cf_playlist_view]' ],
             'cf-verify-email'   => [ 'title' => 'Verify Email',    'shortcode' => '[cf_verify_email]' ],
         ];
 

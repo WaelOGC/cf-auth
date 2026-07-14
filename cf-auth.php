@@ -12,7 +12,7 @@
 if ( ! defined( 'ABSPATH' ) ) exit;
 
 // ── Constants ────────────────────────────────────────────────────────────────
-define( 'CF_AUTH_VERSION',   '2.0.2-fix1' );
+define( 'CF_AUTH_VERSION', (string) filemtime( __FILE__ ) );
 define( 'CF_AUTH_DIR',       plugin_dir_path( __FILE__ ) );
 define( 'CF_AUTH_URL',       plugin_dir_url( __FILE__ ) );
 define( 'CF_AUTH_TEMPLATES', CF_AUTH_DIR . 'templates/' );
@@ -25,6 +25,7 @@ require_once CF_AUTH_DIR . 'includes/class-cf-registration.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-login.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-password.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-profile.php';
+require_once CF_AUTH_DIR . 'includes/class-cf-playlists.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-social-auth.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-donations.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-shortcodes.php';

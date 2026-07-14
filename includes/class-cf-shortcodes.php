@@ -17,6 +17,7 @@ class CF_Shortcodes {
         add_shortcode( 'cf_forgot_password', [ $this, 'render_forgot'   ] );
         add_shortcode( 'cf_reset_password',  [ $this, 'render_reset'    ] );
         add_shortcode( 'cf_user_profile',    [ $this, 'render_profile'  ] );
+        add_shortcode( 'cf_playlist_view',   [ $this, 'render_playlist_view' ] );
         add_shortcode( 'cf_verify_email',    [ $this, 'render_verify'   ] );
         add_shortcode( 'cf_donation_form',   [ $this, 'render_donation' ] );
     }
@@ -566,6 +567,278 @@ class CF_Shortcodes {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Favorites helpers (match collective-finity theme data schema)
+    // ─────────────────────────────────────────────────────────────────────────
+    private function get_published_favorites( array $ids, string $post_type ): array {
+        $posts = [];
+        foreach ( array_unique( array_map( 'absint', $ids ) ) as $id ) {
+            if ( ! $id ) {
+                continue;
+            }
+            $post = get_post( $id );
+            if ( $post && $post->post_type === $post_type && $post->post_status === 'publish' ) {
+                $posts[] = $post;
+            }
+        }
+        return $posts;
+    }
+
+    private function get_favorite_cover_url( WP_Post $post, string $type ): string {
+        return CF_Profile::get_release_cover_url( $post, $type );
+    }
+
+    private function get_favorite_artist_name( WP_Post $post, string $type ): string {
+        if ( $type === 'track' ) {
+            $artists = wp_get_post_terms( $post->ID, 'track_artist' );
+            if ( ! empty( $artists ) && ! is_wp_error( $artists ) ) {
+                return $artists[0]->name;
+            }
+            return 'Collective Finity';
+        }
+
+        if ( $type === 'post' ) {
+            return get_the_author_meta( 'display_name', $post->post_author );
+        }
+
+        if ( function_exists( 'collective_finity_brand_name' ) ) {
+            return collective_finity_brand_name();
+        }
+
+        return 'Collective Finity';
+    }
+
+    private function render_favorite_card( WP_Post $post, string $type ): void {
+        $cover  = $this->get_favorite_cover_url( $post, $type );
+        $artist = $this->get_favorite_artist_name( $post, $type );
+        ?>
+        <div class="cf-release-card cf-fav-card" data-id="<?php echo esc_attr( $post->ID ); ?>" data-type="<?php echo esc_attr( $type ); ?>">
+            <a href="<?php echo esc_url( get_permalink( $post ) ); ?>" class="cf-release-card-link">
+                <div class="cf-release-cover<?php echo $cover ? '' : ' cf-release-cover--empty'; ?>">
+                    <?php if ( $cover ) : ?>
+                        <img src="<?php echo esc_url( $cover ); ?>" alt="<?php echo esc_attr( $post->post_title ); ?>" loading="lazy">
+                    <?php else : ?>
+                        <span class="cf-release-cover-placeholder" aria-hidden="true">♪</span>
+                    <?php endif; ?>
+                </div>
+                <div class="cf-release-info">
+                    <span class="cf-release-title"><?php echo esc_html( $post->post_title ); ?></span>
+                    <span class="cf-release-artist"><?php echo esc_html( $artist ); ?></span>
+                </div>
+            </a>
+            <button type="button" class="cf-fav-remove" data-id="<?php echo esc_attr( $post->ID ); ?>" data-type="<?php echo esc_attr( $type ); ?>" title="<?php esc_attr_e( 'Remove from favorites', 'cf-auth' ); ?>" aria-label="<?php esc_attr_e( 'Remove from favorites', 'cf-auth' ); ?>">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            </button>
+        </div>
+        <?php
+    }
+
+    private function render_playlist_item_row( array $item, int $index, bool $show_remove = false, int $playlist_id = 0 ): void {
+        $cover    = $item['cover'] ?? '';
+        $artist   = $item['artist'] ?? '';
+        $file_url = ( $item['item_type'] ?? '' ) === 'track' ? ( $item['file_url'] ?? '' ) : '';
+        ?>
+        <div class="cf-tracklist-row cf-playlist-item-row cf-playlist-item-card" role="row"
+             data-id="<?php echo esc_attr( $item['item_id'] ); ?>"
+             data-type="<?php echo esc_attr( $item['item_type'] ); ?>"
+             data-title="<?php echo esc_attr( $item['title'] ); ?>"
+             data-artist="<?php echo esc_attr( $artist ); ?>"
+             data-cover="<?php echo esc_url( $cover ); ?>"
+             <?php if ( $file_url ) : ?>data-file-url="<?php echo esc_url( $file_url ); ?>"<?php endif; ?>>
+            <div class="cf-col-index" role="cell"><span class="cf-track-num"><?php echo (int) $index; ?></span></div>
+            <div class="cf-col-title" role="cell">
+                <a href="<?php echo esc_url( $item['permalink'] ); ?>" class="cf-playlist-row-link">
+                    <span class="cf-playlist-row-cover<?php echo $cover ? '' : ' cf-playlist-row-cover--empty'; ?>">
+                        <?php if ( $cover ) : ?>
+                            <img src="<?php echo esc_url( $cover ); ?>" alt="<?php echo esc_attr( $item['title'] ); ?>" loading="lazy">
+                        <?php else : ?>
+                            <span class="cf-playlist-row-cover-placeholder" aria-hidden="true">♪</span>
+                        <?php endif; ?>
+                    </span>
+                    <span class="cf-playlist-row-info">
+                        <span class="cf-track-name"><?php echo esc_html( $item['title'] ); ?></span>
+                        <span class="cf-track-artist-name"><?php echo esc_html( $artist ); ?></span>
+                    </span>
+                </a>
+            </div>
+            <div class="cf-col-view" role="cell">
+                <a href="<?php echo esc_url( $item['permalink'] ); ?>" class="cf-btn cf-btn-outline-sm"><?php esc_html_e( 'View', 'cf-auth' ); ?></a>
+            </div>
+            <?php if ( $show_remove && $playlist_id ) : ?>
+            <div class="cf-col-remove" role="cell">
+                <button type="button" class="cf-fav-remove cf-playlist-item-remove" data-playlist-id="<?php echo esc_attr( $playlist_id ); ?>" data-id="<?php echo esc_attr( $item['item_id'] ); ?>" data-type="<?php echo esc_attr( $item['item_type'] ); ?>" title="<?php esc_attr_e( 'Remove from playlist', 'cf-auth' ); ?>" aria-label="<?php esc_attr_e( 'Remove from playlist', 'cf-auth' ); ?>">×</button>
+            </div>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    private function render_playlist_profile_card( array $playlist ): void {
+        $cover = $playlist['cover'] ?? '';
+        $badge = (int) $playlist['is_public'] ? __( 'Public', 'cf-auth' ) : __( 'Private', 'cf-auth' );
+        $badge_class = (int) $playlist['is_public'] ? 'cf-badge-gold' : 'cf-badge-dim';
+        ?>
+        <a href="<?php echo esc_url( $playlist['share_url'] ); ?>" class="cf-playlist-card" data-id="<?php echo esc_attr( $playlist['id'] ); ?>">
+            <div class="cf-playlist-card-cover<?php echo $cover ? '' : ' cf-playlist-card-cover--empty'; ?>">
+                <?php if ( $cover ) : ?>
+                    <img src="<?php echo esc_url( $cover ); ?>" alt="" loading="lazy">
+                <?php else : ?>
+                    <span class="cf-playlist-card-icon" aria-hidden="true">🎵</span>
+                <?php endif; ?>
+            </div>
+            <div class="cf-playlist-card-info">
+                <span class="cf-playlist-card-name"><?php echo esc_html( $playlist['name'] ); ?></span>
+                <span class="cf-playlist-card-meta">
+                    <?php
+                    printf(
+                        /* translators: %d: number of items */
+                        esc_html( _n( '%d item', '%d items', (int) $playlist['item_count'], 'cf-auth' ) ),
+                        (int) $playlist['item_count']
+                    );
+                    ?>
+                </span>
+                <span class="cf-badge <?php echo esc_attr( $badge_class ); ?> cf-playlist-card-badge"><?php echo esc_html( $badge ); ?></span>
+            </div>
+        </a>
+        <?php
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // PLAYLIST VIEW — public share page
+    // ─────────────────────────────────────────────────────────────────────────
+    public function render_playlist_view() {
+        $share_token = sanitize_text_field( $_GET['share'] ?? '' );
+
+        if ( ! $share_token ) {
+            return $this->page_wrap(
+                '<div class="cf-section-card cf-empty-state"><p>' . esc_html__( 'This playlist is private or doesn\'t exist.', 'cf-auth' ) . '</p></div>',
+                'cf-playlist-page'
+            );
+        }
+
+        $playlist = CF_Playlists::get_playlist_by_token( $share_token );
+
+        if ( ! $playlist || ! CF_Playlists::is_playlist_visible( $playlist ) ) {
+            return $this->page_wrap(
+                '<div class="cf-section-card cf-empty-state"><p>' . esc_html__( 'This playlist is private or doesn\'t exist.', 'cf-auth' ) . '</p></div>',
+                'cf-playlist-page'
+            );
+        }
+
+        $is_owner   = is_user_logged_in() && (int) get_current_user_id() === (int) $playlist->user_id;
+        $owner      = get_userdata( (int) $playlist->user_id );
+        $items      = CF_Playlists::resolve_playlist_items( (int) $playlist->id );
+        $share_url  = CF_Playlists::get_share_url( $playlist->share_token );
+
+        $play_queue = [];
+        foreach ( $items as $item ) {
+            if ( ( $item['item_type'] ?? '' ) !== 'track' ) {
+                continue;
+            }
+            $file_url = $item['file_url'] ?? '';
+            if ( ! $file_url ) {
+                continue;
+            }
+            $play_queue[] = [
+                'id'      => (int) $item['item_id'],
+                'title'   => $item['title'],
+                'artist'  => $item['artist'],
+                'art'     => $item['cover'],
+                'url'     => $file_url,
+                'fileUrl' => $file_url,
+            ];
+        }
+
+        ob_start(); ?>
+        <div class="cf-page-wrap cf-playlist-page" id="cf-playlist-view"
+             data-playlist-id="<?php echo esc_attr( $playlist->id ); ?>"
+             data-is-owner="<?php echo $is_owner ? '1' : '0'; ?>"
+             data-is-public="<?php echo (int) $playlist->is_public; ?>"
+             data-share-url="<?php echo esc_url( $share_url ); ?>">
+            <div class="cf-playlist-header">
+                <section class="cf-playlist-hero">
+                    <div class="cf-playlist-hero__icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M9 18V5l12-2v13"/>
+                            <circle cx="6" cy="18" r="3"/>
+                            <circle cx="18" cy="16" r="3"/>
+                        </svg>
+                    </div>
+                    <div class="cf-playlist-hero__content">
+                        <div class="cf-playlist-hero__title-row">
+                            <h1 class="cf-playlist-title" id="cf-playlist-title"><?php echo esc_html( $playlist->name ); ?></h1>
+                            <button type="button" class="cf-btn cf-btn-primary cf-playlist-play-all"
+                                    data-playlist-id="<?php echo esc_attr( $playlist->id ); ?>"
+                                    <?php echo empty( $play_queue ) ? 'disabled' : ''; ?>>
+                                <?php esc_html_e( 'Play All', 'cf-auth' ); ?>
+                            </button>
+                        </div>
+                        <p class="cf-playlist-owner">
+                            <?php
+                            printf(
+                                /* translators: %s: owner display name */
+                                esc_html__( 'by %s', 'cf-auth' ),
+                                esc_html( $owner ? $owner->display_name : '' )
+                            );
+                            ?>
+                        </p>
+                        <div class="cf-playlist-hero__actions">
+                            <a href="<?php echo esc_url( home_url( '/cf-profile#playlists' ) ); ?>"
+                               class="cf-btn cf-btn-outline-sm cf-playlist-back-btn">
+                                <?php esc_html_e( '← Back to Profile', 'cf-auth' ); ?>
+                            </a>
+                        </div>
+                    </div>
+                </section>
+                <script type="application/json" id="cf-playlist-queue"><?php echo wp_json_encode( $play_queue ); ?></script>
+                <?php if ( $is_owner ) : ?>
+                <div class="cf-playlist-manage" id="cf-playlist-manage">
+                    <div class="cf-playlist-manage-row">
+                        <input type="text" id="cf-playlist-rename-input" class="cf-playlist-rename-input" value="<?php echo esc_attr( $playlist->name ); ?>" maxlength="190">
+                        <button type="button" id="cf-playlist-rename-btn" class="cf-btn cf-btn-outline-sm"><?php esc_html_e( 'Rename', 'cf-auth' ); ?></button>
+                    </div>
+                    <div class="cf-playlist-manage-row">
+                        <label class="cf-playlist-visibility-toggle">
+                            <input type="checkbox" id="cf-playlist-public-toggle" <?php checked( (int) $playlist->is_public, 1 ); ?>>
+                            <span><?php esc_html_e( 'Public playlist', 'cf-auth' ); ?></span>
+                        </label>
+                        <button type="button" id="cf-playlist-copy-link" class="cf-btn cf-btn-outline-sm" <?php echo (int) $playlist->is_public ? '' : 'disabled'; ?>><?php esc_html_e( 'Copy share link', 'cf-auth' ); ?></button>
+                        <button type="button" id="cf-playlist-delete-btn" class="cf-btn cf-btn-danger-outline"><?php esc_html_e( 'Delete playlist', 'cf-auth' ); ?></button>
+                    </div>
+                    <div id="cf-playlist-manage-msg" class="cf-message" style="display:none"></div>
+                </div>
+                <?php endif; ?>
+            </div>
+
+            <?php if ( empty( $items ) ) : ?>
+            <div class="cf-section-card cf-empty-state" id="cf-playlist-items-empty">
+                <span class="cf-empty-icon">🎵</span>
+                <p><?php esc_html_e( 'This playlist is empty.', 'cf-auth' ); ?></p>
+            </div>
+            <?php else : ?>
+            <div class="cf-section-card">
+                <div class="cf-tracklist-scroll">
+                    <div class="cf-playlist-tracklist-grid" id="cf-playlist-items-grid" role="table">
+                        <div class="cf-tracklist-row cf-tracklist-head" role="row">
+                            <div class="cf-col-index" role="columnheader">#</div>
+                            <div class="cf-col-title" role="columnheader"><?php esc_html_e( 'Track', 'cf-auth' ); ?></div>
+                            <div class="cf-col-view" role="columnheader"><?php esc_html_e( 'View', 'cf-auth' ); ?></div>
+                            <?php if ( $is_owner ) : ?>
+                            <div class="cf-col-remove" role="columnheader"></div>
+                            <?php endif; ?>
+                        </div>
+                        <?php foreach ( $items as $index => $item ) : ?>
+                            <?php $this->render_playlist_item_row( $item, $index + 1, $is_owner, (int) $playlist->id ); ?>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // USER PROFILE — full page with all tabs
     // ─────────────────────────────────────────────────────────────────────────
     public function render_profile() {
@@ -580,9 +853,15 @@ class CF_Shortcodes {
         $bio        = get_user_meta( $user_id, 'cf_bio', true );
         $since      = CF_Profile::get_member_since( $user_id );
         $provider   = get_user_meta( $user_id, 'cf_social_provider', true ) ?: 'manual';
-        $fav_tracks = get_user_meta( $user_id, 'cf_favorite_tracks', true ) ?: [];
-        $fav_albums = get_user_meta( $user_id, 'cf_favorite_albums', true ) ?: [];
-        $verified   = get_user_meta( $user_id, 'cf_email_verified', true );
+        $fav_tracks       = get_user_meta( $user_id, 'cf_favorite_tracks', true ) ?: [];
+        $fav_albums       = get_user_meta( $user_id, 'cf_favorite_albums', true ) ?: [];
+        $fav_posts        = get_user_meta( $user_id, 'cf_favorite_posts', true ) ?: [];
+        $published_tracks = $this->get_published_favorites( $fav_tracks, 'tracks' );
+        $published_albums = $this->get_published_favorites( $fav_albums, 'albums' );
+        $published_posts  = $this->get_published_favorites( $fav_posts, 'post' );
+        $has_favorites    = ! empty( $published_tracks ) || ! empty( $published_albums ) || ! empty( $published_posts );
+        $user_playlists   = CF_Playlists::get_user_playlists( $user_id );
+        $verified         = get_user_meta( $user_id, 'cf_email_verified', true );
 
         ob_start(); ?>
         <div class="cf-page-wrap cf-profile-page">
@@ -633,6 +912,11 @@ class CF_Shortcodes {
                 </div>
                 <div class="cf-stat-sep"></div>
                 <div class="cf-stat">
+                    <span class="cf-stat-num"><?php echo count($fav_posts); ?></span>
+                    <span class="cf-stat-lbl"><?php _e('Fav Articles','cf-auth'); ?></span>
+                </div>
+                <div class="cf-stat-sep"></div>
+                <div class="cf-stat">
                     <span class="cf-stat-num">∞</span>
                     <span class="cf-stat-lbl"><?php _e('Free Access','cf-auth'); ?></span>
                 </div>
@@ -652,6 +936,10 @@ class CF_Shortcodes {
                     <button class="cf-tab" data-tab="history">
                         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                         <?php _e('History','cf-auth'); ?>
+                    </button>
+                    <button class="cf-tab" data-tab="playlists">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                        <?php _e('Playlists','cf-auth'); ?>
                     </button>
                     <button class="cf-tab" data-tab="settings">
                         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -677,11 +965,45 @@ class CF_Shortcodes {
             </div>
 
             <!-- ── Tab: Favorites ── -->
-            <div class="cf-tab-panel" id="cf-tab-favorites" style="display:none">
-                <div class="cf-section-card cf-empty-state">
+            <div class="cf-tab-panel" id="cf-tab-favorites" style="display:none"
+                 data-empty-msg="<?php echo esc_attr( __( 'No favorites yet. Start listening and save tracks you love.', 'cf-auth' ) ); ?>">
+                <?php if ( ! $has_favorites ) : ?>
+                <div class="cf-section-card cf-empty-state" id="cf-favorites-empty">
                     <span class="cf-empty-icon">♥</span>
                     <p><?php _e('No favorites yet. Start listening and save tracks you love.','cf-auth'); ?></p>
                 </div>
+                <?php else : ?>
+                    <?php if ( ! empty( $published_tracks ) ) : ?>
+                    <div class="cf-section-card cf-fav-section" data-section="tracks">
+                        <h4 class="cf-section-title"><?php _e('Tracks','cf-auth'); ?></h4>
+                        <div class="cf-fav-grid">
+                            <?php foreach ( $published_tracks as $post ) : ?>
+                                <?php $this->render_favorite_card( $post, 'track' ); ?>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ( ! empty( $published_albums ) ) : ?>
+                    <div class="cf-section-card cf-fav-section" data-section="albums">
+                        <h4 class="cf-section-title"><?php _e('Albums','cf-auth'); ?></h4>
+                        <div class="cf-fav-grid">
+                            <?php foreach ( $published_albums as $post ) : ?>
+                                <?php $this->render_favorite_card( $post, 'album' ); ?>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ( ! empty( $published_posts ) ) : ?>
+                    <div class="cf-section-card cf-fav-section" data-section="articles">
+                        <h4 class="cf-section-title"><?php _e( 'Articles', 'cf-auth' ); ?></h4>
+                        <div class="cf-fav-grid">
+                            <?php foreach ( $published_posts as $post ) : ?>
+                                <?php $this->render_favorite_card( $post, 'post' ); ?>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                <?php endif; ?>
             </div>
 
             <!-- ── Tab: History ── -->
@@ -692,6 +1014,38 @@ class CF_Shortcodes {
                         <p class="cf-muted"><?php _e('Loading...','cf-auth'); ?></p>
                     </div>
                 </div>
+            </div>
+
+            <!-- ── Tab: Playlists ── -->
+            <div class="cf-tab-panel" id="cf-tab-playlists" style="display:none"
+                 data-empty-msg="<?php echo esc_attr( __( 'You haven\'t created any playlists yet.', 'cf-auth' ) ); ?>">
+                <div class="cf-section-card cf-playlists-create">
+                    <h4 class="cf-section-title"><?php _e( 'Create Playlist', 'cf-auth' ); ?></h4>
+                    <form id="cf-create-playlist-form" class="cf-playlist-create-form">
+                        <input type="text" id="cf-create-playlist-name" name="name" maxlength="190" placeholder="<?php esc_attr_e( 'Playlist name', 'cf-auth' ); ?>" required>
+                        <button type="submit" class="cf-btn cf-btn-primary-sm">
+                            <span class="cf-btn-text"><?php _e( 'Create Playlist', 'cf-auth' ); ?></span>
+                            <span class="cf-btn-loader" style="display:none"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" class="cf-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
+                        </button>
+                    </form>
+                    <div id="cf-create-playlist-msg" class="cf-message" style="display:none"></div>
+                </div>
+
+                <?php if ( empty( $user_playlists ) ) : ?>
+                <div class="cf-section-card cf-empty-state" id="cf-playlists-empty">
+                    <span class="cf-empty-icon">🎵</span>
+                    <p><?php _e( 'You haven\'t created any playlists yet.', 'cf-auth' ); ?></p>
+                </div>
+                <?php else : ?>
+                <div class="cf-section-card">
+                    <h4 class="cf-section-title"><?php _e( 'Your Playlists', 'cf-auth' ); ?></h4>
+                    <div class="cf-playlists-grid" id="cf-playlists-grid">
+                        <?php foreach ( $user_playlists as $playlist ) : ?>
+                            <?php $this->render_playlist_profile_card( $playlist ); ?>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
             </div>
 
             <!-- ── Tab: Settings ── -->
@@ -782,6 +1136,31 @@ class CF_Shortcodes {
                     <button id="cf-logout-btn-settings" class="cf-btn cf-btn-danger-outline">
                         <?php _e('Sign Out','cf-auth'); ?>
                     </button>
+                </div>
+
+                <div class="cf-section-card cf-danger-zone">
+                    <h3><?php esc_html_e( 'Delete Account', 'cf-auth' ); ?></h3>
+                    <p><?php esc_html_e( 'Permanently delete your account and all associated data (favorites, playlists, listening history). This cannot be undone.', 'cf-auth' ); ?></p>
+
+                    <label class="cf-danger-ack">
+                        <input type="checkbox" id="cf-delete-account-ack">
+                        <?php
+                        printf(
+                            /* translators: 1: privacy policy link open tag, 2: link close tag, 3: terms link open tag, 4: link close tag */
+                            esc_html__( 'I have read the %1$sPrivacy Policy%2$s and %3$sTerms of Service%4$s and understand what data will be deleted and my rights regarding it.', 'cf-auth' ),
+                            '<a href="' . esc_url( home_url( '/privacy-policy/' ) ) . '" target="_blank" rel="noopener">',
+                            '</a>',
+                            '<a href="' . esc_url( home_url( '/terms-of-service/' ) ) . '" target="_blank" rel="noopener">',
+                            '</a>'
+                        );
+                        ?>
+                    </label>
+
+                    <input type="email" id="cf-delete-account-confirm-email" class="cf-delete-account-email" placeholder="<?php esc_attr_e( 'Type your account email to confirm', 'cf-auth' ); ?>" disabled>
+                    <button type="button" id="cf-delete-account-btn" class="cf-btn cf-btn-danger-outline" disabled>
+                        <?php esc_html_e( 'Permanently Delete My Account', 'cf-auth' ); ?>
+                    </button>
+                    <div id="cf-delete-account-msg" class="cf-message" style="display:none"></div>
                 </div>
 
             </div><!-- /settings -->
