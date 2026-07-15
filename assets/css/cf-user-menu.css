@@ -225,7 +225,7 @@ li.cf-user-menu-item {
     display: none;
     position: fixed;
     inset: 0;
-    z-index: 500;
+    z-index: 9998;
     background: transparent;
 }
 .cf-menu-backdrop.is-open {
@@ -234,9 +234,27 @@ li.cf-user-menu-item {
 
 /* ── Responsive ──────────────────────────────────── */
 @media (max-width: 600px) {
+    li.cf-user-menu-item {
+        position: relative;
+        z-index: 10000;
+        overflow: visible;
+    }
+    .cf-user-menu {
+        z-index: 10000;
+        overflow: visible;
+    }
+    .cf-user-btn {
+        position: relative;
+        z-index: 10001;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+    }
     .cf-user-dropdown {
-        width: 200px;
-        right: -8px;
+        position: fixed;
+        top: 56px;
+        right: 12px;
+        width: min(230px, calc(100vw - 24px));
+        z-index: 10002;
     }
 }
 

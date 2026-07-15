@@ -323,17 +323,19 @@
     function playlistCardHtml(p) {
         const cover = p.cover
             ? `<img src="${escHtml(p.cover)}" alt="" loading="lazy">`
-            : '<span class="cf-playlist-card-icon" aria-hidden="true">🎵</span>';
+            : '<span aria-hidden="true">🎵</span>';
         const badge = parseInt(p.is_public, 10) ? 'Public' : 'Private';
-        const badgeClass = parseInt(p.is_public, 10) ? 'cf-badge-gold' : 'cf-badge-dim';
         const count = parseInt(p.item_count, 10) || 0;
         const countLabel = count === 1 ? '1 item' : count + ' items';
-        return `<a href="${escHtml(p.share_url)}" class="cf-playlist-card" data-id="${p.id}">
-            <div class="cf-playlist-card-cover${p.cover ? '' : ' cf-playlist-card-cover--empty'}">${cover}</div>
-            <div class="cf-playlist-card-info">
-                <span class="cf-playlist-card-name">${escHtml(p.name)}</span>
-                <span class="cf-playlist-card-meta">${countLabel}</span>
-                <span class="cf-badge ${badgeClass} cf-playlist-card-badge">${badge}</span>
+        return `<a href="${escHtml(p.share_url)}" class="cf-row-item" data-id="${p.id}">
+            <div class="cf-row-thumb${p.cover ? '' : ' cf-row-thumb--empty'}">${cover}</div>
+            <div class="cf-row-info">
+                <span class="cf-row-title">${escHtml(p.name)}</span>
+                <span class="cf-row-subtitle">${countLabel}</span>
+            </div>
+            <div class="cf-row-trailing">
+                <span class="cf-row-pill">${badge}</span>
+                <svg class="cf-row-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
             </div>
         </a>`;
     }
@@ -358,7 +360,7 @@
             let $grid = $('#cf-playlists-grid');
             if (!$grid.length) {
                 $('#cf-tab-playlists .cf-playlists-create').after(
-                    '<div class="cf-section-card"><h4 class="cf-section-title">Your Playlists</h4><div class="cf-playlists-grid" id="cf-playlists-grid"></div></div>'
+                    '<div class="cf-section-card"><h4 class="cf-section-title">Your Playlists</h4><div class="cf-row-list" id="cf-playlists-grid"></div></div>'
                 );
                 $grid = $('#cf-playlists-grid');
             }

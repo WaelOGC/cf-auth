@@ -611,23 +611,25 @@ class CF_Shortcodes {
         $cover  = $this->get_favorite_cover_url( $post, $type );
         $artist = $this->get_favorite_artist_name( $post, $type );
         ?>
-        <div class="cf-release-card cf-fav-card" data-id="<?php echo esc_attr( $post->ID ); ?>" data-type="<?php echo esc_attr( $type ); ?>">
-            <a href="<?php echo esc_url( get_permalink( $post ) ); ?>" class="cf-release-card-link">
-                <div class="cf-release-cover<?php echo $cover ? '' : ' cf-release-cover--empty'; ?>">
+        <div class="cf-row-item cf-fav-card" data-id="<?php echo esc_attr( $post->ID ); ?>" data-type="<?php echo esc_attr( $type ); ?>">
+            <a href="<?php echo esc_url( get_permalink( $post ) ); ?>" class="cf-row-item-main">
+                <div class="cf-row-thumb<?php echo $cover ? '' : ' cf-row-thumb--empty'; ?>">
                     <?php if ( $cover ) : ?>
                         <img src="<?php echo esc_url( $cover ); ?>" alt="<?php echo esc_attr( $post->post_title ); ?>" loading="lazy">
                     <?php else : ?>
-                        <span class="cf-release-cover-placeholder" aria-hidden="true">♪</span>
+                        <span aria-hidden="true">♪</span>
                     <?php endif; ?>
                 </div>
-                <div class="cf-release-info">
-                    <span class="cf-release-title"><?php echo esc_html( $post->post_title ); ?></span>
-                    <span class="cf-release-artist"><?php echo esc_html( $artist ); ?></span>
+                <div class="cf-row-info">
+                    <span class="cf-row-title"><?php echo esc_html( $post->post_title ); ?></span>
+                    <span class="cf-row-subtitle"><?php echo esc_html( $artist ); ?></span>
                 </div>
             </a>
-            <button type="button" class="cf-fav-remove" data-id="<?php echo esc_attr( $post->ID ); ?>" data-type="<?php echo esc_attr( $type ); ?>" title="<?php esc_attr_e( 'Remove from favorites', 'cf-auth' ); ?>" aria-label="<?php esc_attr_e( 'Remove from favorites', 'cf-auth' ); ?>">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-            </button>
+            <div class="cf-row-trailing">
+                <button type="button" class="cf-fav-remove" data-id="<?php echo esc_attr( $post->ID ); ?>" data-type="<?php echo esc_attr( $type ); ?>" title="<?php esc_attr_e( 'Remove from favorites', 'cf-auth' ); ?>" aria-label="<?php esc_attr_e( 'Remove from favorites', 'cf-auth' ); ?>">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                </button>
+            </div>
         </div>
         <?php
     }
@@ -675,19 +677,18 @@ class CF_Shortcodes {
     private function render_playlist_profile_card( array $playlist ): void {
         $cover = $playlist['cover'] ?? '';
         $badge = (int) $playlist['is_public'] ? __( 'Public', 'cf-auth' ) : __( 'Private', 'cf-auth' );
-        $badge_class = (int) $playlist['is_public'] ? 'cf-badge-gold' : 'cf-badge-dim';
         ?>
-        <a href="<?php echo esc_url( $playlist['share_url'] ); ?>" class="cf-playlist-card" data-id="<?php echo esc_attr( $playlist['id'] ); ?>">
-            <div class="cf-playlist-card-cover<?php echo $cover ? '' : ' cf-playlist-card-cover--empty'; ?>">
+        <a href="<?php echo esc_url( $playlist['share_url'] ); ?>" class="cf-row-item" data-id="<?php echo esc_attr( $playlist['id'] ); ?>">
+            <div class="cf-row-thumb<?php echo $cover ? '' : ' cf-row-thumb--empty'; ?>">
                 <?php if ( $cover ) : ?>
                     <img src="<?php echo esc_url( $cover ); ?>" alt="" loading="lazy">
                 <?php else : ?>
-                    <span class="cf-playlist-card-icon" aria-hidden="true">🎵</span>
+                    <span aria-hidden="true">🎵</span>
                 <?php endif; ?>
             </div>
-            <div class="cf-playlist-card-info">
-                <span class="cf-playlist-card-name"><?php echo esc_html( $playlist['name'] ); ?></span>
-                <span class="cf-playlist-card-meta">
+            <div class="cf-row-info">
+                <span class="cf-row-title"><?php echo esc_html( $playlist['name'] ); ?></span>
+                <span class="cf-row-subtitle">
                     <?php
                     printf(
                         /* translators: %d: number of items */
@@ -696,7 +697,10 @@ class CF_Shortcodes {
                     );
                     ?>
                 </span>
-                <span class="cf-badge <?php echo esc_attr( $badge_class ); ?> cf-playlist-card-badge"><?php echo esc_html( $badge ); ?></span>
+            </div>
+            <div class="cf-row-trailing">
+                <span class="cf-row-pill"><?php echo esc_html( $badge ); ?></span>
+                <svg class="cf-row-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
             </div>
         </a>
         <?php
@@ -976,7 +980,7 @@ class CF_Shortcodes {
                     <?php if ( ! empty( $published_tracks ) ) : ?>
                     <div class="cf-section-card cf-fav-section" data-section="tracks">
                         <h4 class="cf-section-title"><?php _e('Tracks','cf-auth'); ?></h4>
-                        <div class="cf-fav-grid">
+                        <div class="cf-row-list">
                             <?php foreach ( $published_tracks as $post ) : ?>
                                 <?php $this->render_favorite_card( $post, 'track' ); ?>
                             <?php endforeach; ?>
@@ -986,7 +990,7 @@ class CF_Shortcodes {
                     <?php if ( ! empty( $published_albums ) ) : ?>
                     <div class="cf-section-card cf-fav-section" data-section="albums">
                         <h4 class="cf-section-title"><?php _e('Albums','cf-auth'); ?></h4>
-                        <div class="cf-fav-grid">
+                        <div class="cf-row-list">
                             <?php foreach ( $published_albums as $post ) : ?>
                                 <?php $this->render_favorite_card( $post, 'album' ); ?>
                             <?php endforeach; ?>
@@ -996,7 +1000,7 @@ class CF_Shortcodes {
                     <?php if ( ! empty( $published_posts ) ) : ?>
                     <div class="cf-section-card cf-fav-section" data-section="articles">
                         <h4 class="cf-section-title"><?php _e( 'Articles', 'cf-auth' ); ?></h4>
-                        <div class="cf-fav-grid">
+                        <div class="cf-row-list">
                             <?php foreach ( $published_posts as $post ) : ?>
                                 <?php $this->render_favorite_card( $post, 'post' ); ?>
                             <?php endforeach; ?>
@@ -1039,7 +1043,7 @@ class CF_Shortcodes {
                 <?php else : ?>
                 <div class="cf-section-card">
                     <h4 class="cf-section-title"><?php _e( 'Your Playlists', 'cf-auth' ); ?></h4>
-                    <div class="cf-playlists-grid" id="cf-playlists-grid">
+                    <div class="cf-row-list" id="cf-playlists-grid">
                         <?php foreach ( $user_playlists as $playlist ) : ?>
                             <?php $this->render_playlist_profile_card( $playlist ); ?>
                         <?php endforeach; ?>
@@ -1144,16 +1148,18 @@ class CF_Shortcodes {
 
                     <label class="cf-danger-ack">
                         <input type="checkbox" id="cf-delete-account-ack">
-                        <?php
-                        printf(
-                            /* translators: 1: privacy policy link open tag, 2: link close tag, 3: terms link open tag, 4: link close tag */
-                            esc_html__( 'I have read the %1$sPrivacy Policy%2$s and %3$sTerms of Service%4$s and understand what data will be deleted and my rights regarding it.', 'cf-auth' ),
-                            '<a href="' . esc_url( home_url( '/privacy-policy/' ) ) . '" target="_blank" rel="noopener">',
-                            '</a>',
-                            '<a href="' . esc_url( home_url( '/terms-of-service/' ) ) . '" target="_blank" rel="noopener">',
-                            '</a>'
-                        );
-                        ?>
+                        <span>
+                            <?php
+                            printf(
+                                /* translators: 1: privacy policy link open tag, 2: link close tag, 3: terms link open tag, 4: link close tag */
+                                esc_html__( 'I have read the %1$sPrivacy Policy%2$s and %3$sTerms of Service%4$s and understand what data will be deleted and my rights regarding it.', 'cf-auth' ),
+                                '<a href="' . esc_url( home_url( '/privacy-policy/' ) ) . '" target="_blank" rel="noopener">',
+                                '</a>',
+                                '<a href="' . esc_url( home_url( '/terms-of-service/' ) ) . '" target="_blank" rel="noopener">',
+                                '</a>'
+                            );
+                            ?>
+                        </span>
                     </label>
 
                     <input type="email" id="cf-delete-account-confirm-email" class="cf-delete-account-email" placeholder="<?php esc_attr_e( 'Type your account email to confirm', 'cf-auth' ); ?>" disabled>

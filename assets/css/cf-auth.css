@@ -405,9 +405,18 @@
 .cf-stat-sep { width: 1px; height: 32px; background: var(--cf-border); }
 
 /* Tabs */
-.cf-tabs-wrap { margin-bottom: 20px; }
+.cf-tabs-wrap {
+  margin-bottom: 20px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.cf-tabs-wrap::-webkit-scrollbar { display: none; }
 .cf-tabs {
-  display: flex; gap: 4px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: nowrap;
+  min-width: min-content;
   border-bottom: 1px solid var(--cf-border);
 }
 .cf-tab {
@@ -416,6 +425,8 @@
   padding: 10px 16px; color: var(--cf-muted);
   font-family: var(--cf-font-body); font-size: 12px;
   cursor: pointer; transition: all var(--cf-ease); margin-bottom: -1px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .cf-tab:hover { color: var(--cf-text); }
 .cf-tab.active { color: var(--cf-gold); border-bottom-color: var(--cf-gold); }
@@ -496,141 +507,65 @@
 .cf-history-track { color: var(--cf-text); }
 .cf-history-time { color: var(--cf-muted); }
 
-/* Favorites grid (release-card pattern) */
-.cf-fav-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 16px;
+/* Favorites & playlists — compact row list */
+.cf-row-list { display: flex; flex-direction: column; }
+.cf-row-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--cf-border);
+  text-decoration: none; color: inherit;
 }
-.cf-fav-card {
-  position: relative;
-  background: var(--cf-card-2);
-  border: 1px solid var(--cf-border);
-  border-radius: var(--cf-radius-sm);
-  overflow: hidden;
-  transition: border-color var(--cf-ease), transform var(--cf-ease);
-}
-.cf-fav-card:hover { border-color: rgba(255,184,0,0.35); }
-.cf-release-card-link {
-  display: block;
+.cf-row-item:last-child { border-bottom: none; }
+.cf-row-item-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
   text-decoration: none;
   color: inherit;
 }
-.cf-release-cover {
-  aspect-ratio: 1;
-  background: #1a1a1a;
-  overflow: hidden;
+.cf-row-thumb {
+  width: 40px; height: 40px; border-radius: 6px; flex-shrink: 0;
+  background: #1a1a1a; overflow: hidden;
 }
-.cf-release-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+.cf-row-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cf-row-thumb--empty { display: flex; align-items: center; justify-content: center; }
+.cf-row-thumb--empty span { font-size: 14px; color: var(--cf-muted-2); opacity: 0.5; }
+.cf-row-info { flex: 1; min-width: 0; }
+.cf-row-title {
+  display: block; font-size: 14px; font-weight: 500; color: var(--cf-text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.cf-release-cover--empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.cf-row-subtitle {
+  display: block; font-size: 12px; color: var(--cf-muted); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.cf-release-cover-placeholder {
-  font-size: 28px;
-  color: var(--cf-muted-2);
-  opacity: 0.5;
+.cf-row-trailing { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+.cf-row-pill {
+  font-size: 10px; padding: 2px 8px; border-radius: 20px;
+  background: rgba(255,255,255,0.04); color: #888; border: 1px solid var(--cf-border);
 }
-.cf-release-info { padding: 10px 12px 12px; }
-.cf-release-title {
-  display: block;
-  font-family: var(--cf-font-head);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--cf-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.cf-release-artist {
-  display: block;
-  font-size: 10px;
-  color: var(--cf-muted);
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.cf-row-chevron { flex-shrink: 0; color: var(--cf-muted-2); opacity: 0.6; }
 .cf-fav-remove {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border: none;
   border-radius: 50%;
-  background: rgba(0,0,0,0.7);
+  background: transparent;
   color: var(--cf-gold);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  transition: opacity var(--cf-ease), background var(--cf-ease);
+  flex-shrink: 0;
+  transition: background var(--cf-ease), opacity var(--cf-ease);
 }
-.cf-fav-card:hover .cf-fav-remove,
-.cf-fav-remove:focus-visible { opacity: 1; }
-.cf-fav-remove:hover { background: rgba(0,0,0,0.85); }
+.cf-fav-remove:hover { background: rgba(255,255,255,0.06); }
+.cf-fav-remove:focus-visible { outline: 2px solid var(--cf-gold); outline-offset: 2px; }
 .cf-fav-remove:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Playlists tab & view page */
-.cf-playlists-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 16px;
-}
-.cf-playlist-card {
-  display: block;
-  text-decoration: none;
-  color: inherit;
-  background: var(--cf-card-2);
-  border: 1px solid var(--cf-border);
-  border-radius: var(--cf-radius-sm);
-  overflow: hidden;
-  transition: border-color var(--cf-ease), transform var(--cf-ease);
-}
-.cf-playlist-card:hover { border-color: rgba(255,184,0,0.35); }
-.cf-playlist-card-cover {
-  aspect-ratio: 1;
-  background: #1a1a1a;
-  overflow: hidden;
-}
-.cf-playlist-card-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.cf-playlist-card-cover--empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.cf-playlist-card-icon { font-size: 32px; opacity: 0.45; }
-.cf-playlist-card-info { padding: 12px; }
-.cf-playlist-card-name {
-  display: block;
-  font-family: var(--cf-font-head);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--cf-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.cf-playlist-card-meta {
-  display: block;
-  font-size: 11px;
-  color: var(--cf-muted);
-  margin-top: 4px;
-}
-.cf-playlist-card-badge { margin-top: 8px; display: inline-block; }
 .cf-playlist-create-form {
   display: flex;
   gap: 10px;
@@ -897,7 +832,8 @@
   .cf-hero-badges { justify-content: center; }
   .cf-hero-actions { margin-left: 0; }
   .cf-stats-bar { padding: 12px 16px; }
-  .cf-tab span:first-child { display: none; }
+  .cf-tab svg { display: none; }
+  .cf-tab { padding: 10px 12px; }
   .cf-fav-remove { opacity: 1; }
   .cf-playlist-hero {
     flex-direction: column;

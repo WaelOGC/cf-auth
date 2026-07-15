@@ -10,6 +10,7 @@
     // ── Toggle Dropdown ───────────────────────────────────────────────────────
     $(document).on('click', '#cf-user-btn', function (e) {
         e.stopPropagation();
+        e.stopImmediatePropagation();
         const $btn      = $(this);
         const $dropdown = $('#cf-user-dropdown');
         const $backdrop = $('#cf-menu-backdrop');
@@ -39,6 +40,9 @@
 
     // ── Close on outside click ────────────────────────────────────────────────
     $(document).on('click', function (e) {
+        if ($(e.target).closest('#cf-user-btn').length) {
+            return;
+        }
         if (!$(e.target).closest('#cf-user-menu').length) {
             closeMenu();
         }
