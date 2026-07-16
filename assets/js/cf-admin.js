@@ -112,10 +112,13 @@
         e.preventDefault();
         const data = {};
         $(this).serializeArray().forEach(({name,value}) => data[name]=value);
-        // Handle unchecked checkboxes
-        if (!data['cf_auth_email_verification']) data['cf_auth_email_verification'] = '0';
+        // Handle unchecked checkboxes only when they exist in the current form tab
+        const $form = $(this);
+        if ($form.find('[name="cf_auth_email_verification"]').length && !data['cf_auth_email_verification']) {
+            data['cf_auth_email_verification'] = '0';
+        }
         ['cf_auth_google_enabled','cf_auth_facebook_enabled','cf_auth_discord_enabled','cf_auth_twitter_enabled'].forEach(key => {
-            if (!data[key]) data[key] = '0';
+            if ($form.find('[name="' + key + '"]').length && !data[key]) data[key] = '0';
         });
 
         const $btn = $('#cf-save-btn').text('Saving...').prop('disabled',true);

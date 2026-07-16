@@ -1131,9 +1131,25 @@ class CF_Admin {
         foreach ($allowed as $key) {
             if (isset($_POST[$key])) update_option($key, sanitize_text_field($_POST[$key]));
         }
-        if (!isset($_POST['cf_auth_email_verification'])) update_option('cf_auth_email_verification','0');
-        foreach ( [ 'cf_auth_google_enabled', 'cf_auth_facebook_enabled', 'cf_auth_discord_enabled', 'cf_auth_twitter_enabled' ] as $key ) {
-            if ( ! isset( $_POST[ $key ] ) ) update_option( $key, '0' );
+        // Only reset "email verification" when the General tab (which owns this field) was submitted.
+        if ( isset( $_POST['cf_auth_login_redirect'] ) || isset( $_POST['cf_auth_logout_redirect'] ) || isset( $_POST['cf_auth_after_register'] ) ) {
+            if ( ! isset( $_POST['cf_auth_email_verification'] ) ) {
+                update_option( 'cf_auth_email_verification', '0' );
+            }
+        }
+
+        // Only reset each social provider's "enabled" flag when the Social tab was submitted,
+        // evidenced by presence of that provider's own credential field in $_POST.
+        $social_tab_markers = [
+            'cf_auth_google_enabled'   => 'cf_auth_google_client_id',
+            'cf_auth_facebook_enabled' => 'cf_auth_facebook_app_id',
+            'cf_auth_discord_enabled'  => 'cf_auth_discord_client_id',
+            'cf_auth_twitter_enabled'  => 'cf_auth_twitter_api_key',
+        ];
+        foreach ( $social_tab_markers as $enabled_key => $marker_key ) {
+            if ( isset( $_POST[ $marker_key ] ) && ! isset( $_POST[ $enabled_key ] ) ) {
+                update_option( $enabled_key, '0' );
+            }
         }
 
         wp_send_json_success(['message'=>'Settings saved successfully.']);
