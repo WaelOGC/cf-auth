@@ -20,6 +20,7 @@ class CF_Shortcodes {
         add_shortcode( 'cf_playlist_view',   [ $this, 'render_playlist_view' ] );
         add_shortcode( 'cf_verify_email',    [ $this, 'render_verify'   ] );
         add_shortcode( 'cf_donation_form',   [ $this, 'render_donation' ] );
+        add_shortcode( 'cf_donor_wall',      [ $this, 'render_donor_wall' ] );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -400,10 +401,17 @@ class CF_Shortcodes {
                         <div id="cf-donation-message" class="cf-message" style="display:none"></div>
 
                         <div class="cf-field">
-                            <label for="cf-donation-amount"><?php _e( 'Amount', 'cf-auth' ); ?></label>
-                            <input type="number" id="cf-donation-amount" name="amount" class="cf-donation-amount"
-                                   min="1" step="0.01" required
-                                   placeholder="<?php echo esc_attr( $currency ); ?>">
+                            <label for="cf-donation-amount-select"><?php _e( 'Amount', 'cf-auth' ); ?></label>
+                            <select id="cf-donation-amount-select" class="cf-donation-amount-select">
+                                <option value="5">5 <?php echo esc_html( $currency ); ?></option>
+                                <option value="10" selected>10 <?php echo esc_html( $currency ); ?></option>
+                                <option value="15">15 <?php echo esc_html( $currency ); ?></option>
+                                <option value="other"><?php _e( 'Other amount…', 'cf-auth' ); ?></option>
+                            </select>
+                            <input type="number" id="cf-donation-amount" name="amount" class="cf-donation-amount cf-donation-amount--custom"
+                                   min="1" step="0.01" required value="10"
+                                   placeholder="<?php echo esc_attr( $currency ); ?>"
+                                   style="display:none;">
                         </div>
 
                         <div class="cf-field">
@@ -555,6 +563,24 @@ class CF_Shortcodes {
                 }).render('#cf-paypal-buttons');
             }
 
+            var amountSelect = document.getElementById('cf-donation-amount-select');
+            var amountInput = document.getElementById('cf-donation-amount');
+            if (amountSelect && amountInput) {
+                amountSelect.addEventListener('change', function () {
+                    var val = amountSelect.value;
+                    if (val === 'other') {
+                        amountInput.value = '';
+                        amountInput.style.display = '';
+                        amountInput.classList.add('is-visible');
+                        amountInput.focus();
+                    } else {
+                        amountInput.value = val;
+                        amountInput.style.display = 'none';
+                        amountInput.classList.remove('is-visible');
+                    }
+                });
+            }
+
             if (document.readyState === 'loading') {
                 document.addEventListener('DOMContentLoaded', initPayPalButtons);
             } else {
@@ -564,6 +590,87 @@ class CF_Shortcodes {
         </script>
         <?php
         return ob_get_clean();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // DONOR WALL
+    // ─────────────────────────────────────────────────────────────────────────
+    public function render_donor_wall() {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'cf_donations';
+        $rows  = $wpdb->get_results(
+            "SELECT donor_name, message, created_at
+             FROM {$table}
+             WHERE status = 'completed' AND show_on_wall = 1
+             ORDER BY created_at DESC
+             LIMIT 60"
+        );
+
+        if ( ! is_array( $rows ) ) {
+            $rows = [];
+        }
+
+        $is_empty = empty( $rows );
+
+        ob_start();
+        ?>
+        <div class="cf-donor-wall<?php echo $is_empty ? ' cf-donor-wall--empty' : ''; ?>">
+            <div class="cf-donor-wall__track">
+                <?php $this->render_donor_wall_cards( $rows ); ?>
+                <?php if ( ! $is_empty ) : ?>
+                    <?php $this->render_donor_wall_cards( $rows ); ?>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
+     * Echo one pass of donor-wall cards (duplicated by the caller for seamless marquee).
+     *
+     * @param array $rows Donation rows (or empty for the placeholder state).
+     */
+    private function render_donor_wall_cards( array $rows ): void {
+        if ( empty( $rows ) ) {
+            ?>
+            <div class="cf-donor-wall__card">
+                <span class="cf-donor-wall__name"><?php esc_html_e( 'Be the first to support Collective Finity.', 'cf-auth' ); ?></span>
+            </div>
+            <?php
+            return;
+        }
+
+        $now = current_time( 'timestamp' );
+
+        foreach ( $rows as $row ) {
+            $name = isset( $row->donor_name ) ? trim( (string) $row->donor_name ) : '';
+            if ( $name === '' ) {
+                $name = __( 'A generous supporter', 'cf-auth' );
+            }
+
+            $message = isset( $row->message ) ? trim( (string) $row->message ) : '';
+            $created = isset( $row->created_at ) ? strtotime( $row->created_at ) : false;
+            $date    = $created
+                ? sprintf(
+                    /* translators: %s: human-readable time difference, e.g. "3 days" */
+                    __( '%s ago', 'cf-auth' ),
+                    human_time_diff( $created, $now )
+                )
+                : '';
+            ?>
+            <div class="cf-donor-wall__card">
+                <span class="cf-donor-wall__name"><?php echo esc_html( $name ); ?></span>
+                <?php if ( $message !== '' ) : ?>
+                    <p class="cf-donor-wall__message">"<?php echo esc_html( $message ); ?>"</p>
+                <?php endif; ?>
+                <?php if ( $date !== '' ) : ?>
+                    <span class="cf-donor-wall__date"><?php echo esc_html( $date ); ?></span>
+                <?php endif; ?>
+            </div>
+            <?php
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

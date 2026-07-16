@@ -126,6 +126,14 @@
 }
 .cf-card-sm { max-width: 420px; margin: 0 auto; }
 
+/* Donation page — stronger bordered box */
+.cf-donation-page .cf-card {
+  border: 1px solid rgba(255, 184, 0, 0.18);
+  box-shadow:
+    var(--cf-card-shadow, 0 4px 16px rgba(0, 0, 0, 0.35)),
+    0 8px 28px rgba(0, 0, 0, 0.28);
+}
+
 /* Auth form side card — no extra border/bg */
 .cf-auth-form-side .cf-card {
   border: none;
@@ -214,6 +222,8 @@
 .cf-field input[type="text"],
 .cf-field input[type="email"],
 .cf-field input[type="password"],
+.cf-field input[type="number"],
+.cf-field select,
 .cf-field textarea {
   background: #080808;
   border: 1px solid var(--cf-border-2);
@@ -227,11 +237,28 @@
   width: 100%;
 }
 .cf-field input:focus,
+.cf-field select:focus,
 .cf-field textarea:focus {
   border-color: var(--cf-gold);
   box-shadow: 0 0 0 3px rgba(255,184,0,0.08);
 }
 .cf-field textarea { resize: vertical; min-height: 80px; }
+
+.cf-field select,
+.cf-donation-amount-select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23777' d='M1.41 0L6 4.58 10.59 0 12 1.41l-6 6-6-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+}
+
+.cf-donation-amount--custom.is-visible {
+  display: block;
+  margin-top: 2px;
+}
 
 .cf-field-note { font-size: 11px; color: var(--cf-muted); }
 .cf-field-note.cf-warn { color: var(--cf-warn); }
@@ -818,6 +845,65 @@
   background: rgba(239,68,68,0.1);
   border-color: rgba(239,68,68,0.35);
   color: #ef4444;
+}
+
+/* ── Donor Wall ─────────────────────────────────────── */
+.cf-donor-wall {
+  position: relative;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent);
+  mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent);
+}
+.cf-donor-wall__track {
+  display: flex;
+  gap: 16px;
+  width: max-content;
+  animation: cfDonorWallScroll 40s linear infinite;
+}
+.cf-donor-wall:hover .cf-donor-wall__track {
+  animation-play-state: paused;
+}
+.cf-donor-wall--empty .cf-donor-wall__track {
+  animation: none;
+  justify-content: center;
+  width: 100%;
+}
+@keyframes cfDonorWallScroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.cf-donor-wall__card {
+  flex: 0 0 auto;
+  width: 260px;
+  padding: 18px;
+  border-radius: 14px;
+  background: #0B0B0B;
+  border: 1px solid rgba(255, 183, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cf-donor-wall__name {
+  font-family: 'Space Mono', monospace;
+  font-size: 14px;
+  color: var(--cf-accent, #FFB700);
+  font-weight: 600;
+}
+.cf-donor-wall__message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.72);
+}
+.cf-donor-wall__date {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cf-donor-wall__track {
+    animation: none;
+    overflow-x: auto;
+  }
 }
 
 /* ── Responsive ──────────────────────────────────────── */
