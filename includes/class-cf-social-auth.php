@@ -202,7 +202,31 @@ class CF_Social_Auth {
         }
 
         update_user_meta( $user_id, 'cf_last_active', current_time( 'mysql' ) );
+
+        if ( headers_sent( $file, $line ) ) {
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'user_id'  => $user_id,
+                'provider' => $provider,
+                'meta'     => [
+                    'reason' => 'headers_already_sent',
+                    'file'   => $file,
+                    'line'   => $line,
+                ],
+            ] );
+        }
+
         wp_set_auth_cookie( $user_id, false );
+        wp_set_current_user( $user_id );
+
+        if ( ! is_user_logged_in() ) {
+            CF_Activity_Log::safe_log( 'login_failed', [
+                'user_id'  => $user_id,
+                'provider' => $provider,
+                'meta'     => [ 'reason' => 'auth_cookie_not_persisted' ],
+            ] );
+        }
+
+        nocache_headers();
 
         do_action( 'cf_auth_after_login', $user_id, [
             'method'   => 'social',

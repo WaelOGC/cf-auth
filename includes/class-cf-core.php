@@ -39,6 +39,8 @@ class CF_Core {
     private function register_hooks() {
         add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_frontend' ] );
         add_action( 'template_redirect',  [ $this, 'redirect_logged_in' ] );
+        add_action( 'template_redirect',  [ $this, 'exclude_auth_pages_from_cache' ], 1 );
+        add_action( 'delete_user',       [ $this, 'cleanup_user_on_delete' ] );
 
         // Override WordPress default auth URLs
         add_filter( 'login_url',        [ $this, 'custom_login_url'    ], 10, 3 );
@@ -103,6 +105,63 @@ class CF_Core {
             wp_safe_redirect( get_option( 'cf_auth_login_redirect', home_url( '/cf-profile' ) ) );
             exit;
         }
+    }
+
+    // Prevent page caches (LiteSpeed, etc.) from serving stale auth/profile pages
+    public function exclude_auth_pages_from_cache() {
+        if ( ! is_singular() ) {
+            return;
+        }
+
+        $post = get_post();
+        if ( ! $post instanceof WP_Post ) {
+            return;
+        }
+
+        $auth_shortcodes = [
+            'cf_login_form', 'cf_register_form', 'cf_forgot_password',
+            'cf_reset_password', 'cf_verify_email', 'cf_user_profile',
+        ];
+
+        foreach ( $auth_shortcodes as $shortcode ) {
+            if ( has_shortcode( $post->post_content, $shortcode ) ) {
+                if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+                    define( 'DONOTCACHEPAGE', true );
+                }
+                do_action( 'litespeed_control_set_nocache', 'CF Auth dynamic page' );
+                nocache_headers();
+                return;
+            }
+        }
+    }
+
+    public function cleanup_user_on_delete( $user_id ) {
+        global $wpdb;
+
+        if ( ! $user_id ) return;
+
+        // Delete social connections
+        $wpdb->delete( $wpdb->prefix . 'cf_social_connections', [ 'user_id' => $user_id ] );
+
+        // Delete email verification tokens
+        $wpdb->delete( $wpdb->prefix . 'cf_email_tokens', [ 'user_id' => $user_id ] );
+
+        // Delete password reset tokens
+        $wpdb->delete( $wpdb->prefix . 'cf_reset_tokens', [ 'user_id' => $user_id ] );
+
+        // Delete activity log entries for this user
+        $wpdb->delete( $wpdb->prefix . 'cf_activity_log', [ 'user_id' => $user_id ] );
+
+        // Delete user metadata added by the plugin
+        delete_user_meta( $user_id, 'cf_email_verified' );
+        delete_user_meta( $user_id, 'cf_account_status' );
+        delete_user_meta( $user_id, 'cf_member_since' );
+        delete_user_meta( $user_id, 'cf_social_provider' );
+        delete_user_meta( $user_id, 'cf_social_avatar' );
+        delete_user_meta( $user_id, 'cf_bio' );
+        delete_user_meta( $user_id, 'cf_favorite_tracks' );
+        delete_user_meta( $user_id, 'cf_favorite_albums' );
+        delete_user_meta( $user_id, 'cf_last_active' );
     }
 
     // Clean admin bar — remove "Howdy" etc (only runs if admin bar somehow shows)
