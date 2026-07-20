@@ -18,6 +18,69 @@
         $form.find('[type="submit"]').prop('disabled', on);
     }
 
+    // ── Shared confirmation modal ─────────────────────
+    // options: { title, message, confirmText, cancelText, danger }
+    // Resolves true on confirm, false on cancel / backdrop / Escape.
+    function cfConfirm(options) {
+        const opts = Object.assign({
+            title: '',
+            message: '',
+            confirmText: 'Confirm',
+            cancelText: 'Cancel',
+            danger: false,
+        }, options || {});
+
+        return new Promise(function (resolve) {
+            const $existing = $('#cf-confirm-modal');
+            if ($existing.length) $existing.remove();
+
+            const confirmClass = opts.danger ? 'cf-btn cf-btn-danger' : 'cf-btn cf-btn-primary';
+            const $modal = $(
+                '<div id="cf-confirm-modal" class="cf-modal" role="dialog" aria-modal="true" aria-labelledby="cf-confirm-title">' +
+                    '<div class="cf-modal-backdrop"></div>' +
+                    '<div class="cf-modal-box">' +
+                        '<div class="cf-modal-head">' +
+                            '<h3 id="cf-confirm-title"></h3>' +
+                        '</div>' +
+                        '<div class="cf-modal-body">' +
+                            '<p class="cf-modal-message"></p>' +
+                        '</div>' +
+                        '<div class="cf-modal-foot">' +
+                            '<button type="button" class="cf-btn cf-btn-outline cf-confirm-cancel"></button>' +
+                            '<button type="button" class="cf-confirm-ok"></button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>'
+            );
+
+            $modal.find('#cf-confirm-title').text(opts.title);
+            $modal.find('.cf-modal-message').text(opts.message).toggle(!!opts.message);
+            $modal.find('.cf-confirm-cancel').text(opts.cancelText);
+            $modal.find('.cf-confirm-ok').attr('class', confirmClass + ' cf-confirm-ok').text(opts.confirmText);
+            $('body').append($modal).addClass('cf-modal-open');
+
+            const $ok = $modal.find('.cf-confirm-ok');
+            $ok.trigger('focus');
+
+            function close(result) {
+                $(document).off('keydown.cfConfirm');
+                $('body').removeClass('cf-modal-open');
+                $modal.remove();
+                resolve(result);
+            }
+
+            $modal.on('click', '.cf-confirm-ok', function () { close(true); });
+            $modal.on('click', '.cf-confirm-cancel', function () { close(false); });
+            $modal.on('click', '.cf-modal-backdrop', function () { close(false); });
+            $(document).on('keydown.cfConfirm', function (e) {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    close(false);
+                }
+            });
+        });
+    }
+
     let nonceRefreshPromise = null;
 
     function refreshNonces() {
@@ -238,8 +301,14 @@
 
     // ── Logout ────────────────────────────────────────
     $(document).on('click', '#cf-logout-btn, #cf-logout-btn-settings', function () {
-        if (!confirm('Sign out?')) return;
-        post('cf_logout', {}, d => location.href = d.redirect);
+        cfConfirm({
+            title: 'Sign out?',
+            confirmText: 'Sign out',
+            cancelText: 'Cancel',
+        }).then(function (ok) {
+            if (!ok) return;
+            post('cf_logout', {}, d => location.href = d.redirect);
+        });
     });
 
     // ── Listening history ─────────────────────────────
@@ -421,12 +490,20 @@
     });
 
     $(document).on('click', '#cf-playlist-delete-btn', function () {
-        if (!confirm('Delete this playlist? This cannot be undone.')) return;
-        const id = $('#cf-playlist-view').data('playlist-id');
-        window.CF_Auth.deletePlaylist(id).then(function () {
-            location.href = CF.profile_url + '#playlists';
-        }, function (d) {
-            showPlaylistMsg((d && d.message) || 'Could not delete playlist.', 'error');
+        cfConfirm({
+            title: 'Delete this playlist?',
+            message: 'This cannot be undone.',
+            confirmText: 'Delete',
+            cancelText: 'Cancel',
+            danger: true,
+        }).then(function (ok) {
+            if (!ok) return;
+            const id = $('#cf-playlist-view').data('playlist-id');
+            window.CF_Auth.deletePlaylist(id).then(function () {
+                location.href = CF.profile_url + '#playlists';
+            }, function (d) {
+                showPlaylistMsg((d && d.message) || 'Could not delete playlist.', 'error');
+            });
         });
     });
 
@@ -524,17 +601,25 @@
     $(document).on('input', '#cf-delete-account-confirm-email', updateDeleteAccountControls);
 
     $(document).on('click', '#cf-delete-account-btn', function () {
-        if (!confirm('This is permanent. Continue?')) return;
         const $btn = $(this);
         const $msg = $('#cf-delete-account-msg');
-        $btn.prop('disabled', true);
-        post('cf_delete_account', {
-            confirm_email: $('#cf-delete-account-confirm-email').val()
-        }, function (d) {
-            window.location.href = (d && d.redirect) ? d.redirect : '/';
-        }, function (d) {
-            msg($msg, (d && d.message) || 'Could not delete account.', 'error');
-            updateDeleteAccountControls();
+        cfConfirm({
+            title: 'Delete account?',
+            message: 'This is permanent. Continue?',
+            confirmText: 'Delete account',
+            cancelText: 'Cancel',
+            danger: true,
+        }).then(function (ok) {
+            if (!ok) return;
+            $btn.prop('disabled', true);
+            post('cf_delete_account', {
+                confirm_email: $('#cf-delete-account-confirm-email').val()
+            }, function (d) {
+                window.location.href = (d && d.redirect) ? d.redirect : '/';
+            }, function (d) {
+                msg($msg, (d && d.message) || 'Could not delete account.', 'error');
+                updateDeleteAccountControls();
+            });
         });
     });
 

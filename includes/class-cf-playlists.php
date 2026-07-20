@@ -5,6 +5,15 @@ class CF_Playlists {
 
     private static $instance = null;
 
+    /** Max playlists a user may create within CREATE_RATE_WINDOW seconds. */
+    private const CREATE_RATE_LIMIT = 5;
+
+    /** Sliding window (seconds) for the create-playlist rate limit. */
+    private const CREATE_RATE_WINDOW = 60;
+
+    /** Hard cap on total playlists per user. */
+    private const MAX_PLAYLISTS_PER_USER = 200;
+
     private const POST_TYPE_MAP = [
         'track' => 'tracks',
         'album' => 'albums',
@@ -43,13 +52,29 @@ class CF_Playlists {
         }
 
         global $wpdb;
-        $table = $wpdb->prefix . 'cf_playlists';
+        $table   = $wpdb->prefix . 'cf_playlists';
+        $user_id = get_current_user_id();
+
+        $total = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE user_id = %d",
+            $user_id
+        ) );
+        if ( $total >= self::MAX_PLAYLISTS_PER_USER ) {
+            wp_send_json_error( [ 'message' => __( "You've reached the maximum number of playlists.", 'cf-auth' ) ] );
+        }
+
+        $rate_key = 'cf_pl_create_' . $user_id;
+        $recent   = (int) get_transient( $rate_key );
+        if ( $recent >= self::CREATE_RATE_LIMIT ) {
+            wp_send_json_error( [ 'message' => __( "You're creating playlists too quickly. Please wait a moment and try again.", 'cf-auth' ) ] );
+        }
+
         $token = self::generate_share_token();
 
         $inserted = $wpdb->insert(
             $table,
             [
-                'user_id'     => get_current_user_id(),
+                'user_id'     => $user_id,
                 'name'        => $name,
                 'is_public'   => 0,
                 'share_token' => $token,
@@ -60,6 +85,8 @@ class CF_Playlists {
         if ( ! $inserted ) {
             wp_send_json_error( [ 'message' => __( 'Could not create playlist.', 'cf-auth' ) ] );
         }
+
+        set_transient( $rate_key, $recent + 1, self::CREATE_RATE_WINDOW );
 
         wp_send_json_success( self::format_playlist_row( [
             'id'          => (int) $wpdb->insert_id,

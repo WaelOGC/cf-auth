@@ -3,7 +3,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class CF_Install {
 
-    const DB_VERSION = '3';
+    const DB_VERSION = '4';
 
     public static function activate() {
         self::create_tables();
@@ -131,6 +131,18 @@ class CF_Install {
             UNIQUE KEY unique_item (playlist_id, item_id, item_type)
         ) $charset;";
 
+        $sql8 = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}cf_notifications (
+            id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id     BIGINT UNSIGNED NOT NULL,
+            type        VARCHAR(50)     NOT NULL,
+            title       VARCHAR(255)    NOT NULL,
+            message     TEXT            NOT NULL,
+            link        VARCHAR(255)    DEFAULT NULL,
+            is_read     TINYINT(1)      DEFAULT 0,
+            created_at  DATETIME        DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_user_id (user_id)
+        ) $charset;";
+
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta( $sql1 );
         dbDelta( $sql2 );
@@ -139,6 +151,7 @@ class CF_Install {
         dbDelta( $sql5 );
         dbDelta( $sql6 );
         dbDelta( $sql7 );
+        dbDelta( $sql8 );
     }
 
     // ── Custom Role ───────────────────────────────────────────────────────────

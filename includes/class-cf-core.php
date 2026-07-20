@@ -30,6 +30,7 @@ class CF_Core {
         CF_Playlists::get_instance();
         CF_Social_Auth::get_instance();
         CF_Donations::get_instance();
+        CF_Notifications::get_instance();
         CF_Shortcodes::get_instance();
         if ( is_admin() ) {
             CF_Admin::get_instance();
@@ -40,7 +41,8 @@ class CF_Core {
         add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_frontend' ] );
         add_action( 'template_redirect',  [ $this, 'redirect_logged_in' ] );
         add_action( 'template_redirect',  [ $this, 'exclude_auth_pages_from_cache' ], 1 );
-        add_action( 'delete_user',       [ $this, 'cleanup_user_on_delete' ] );
+        add_action( 'delete_user',            [ $this, 'cleanup_user_on_delete' ] );
+        add_action( 'transition_post_status', [ $this, 'notify_on_content_publish' ], 10, 3 );
 
         // Override WordPress default auth URLs
         add_filter( 'login_url',        [ $this, 'custom_login_url'    ], 10, 3 );
@@ -138,7 +140,9 @@ class CF_Core {
     public function cleanup_user_on_delete( $user_id ) {
         global $wpdb;
 
-        if ( ! $user_id ) return;
+        if ( ! $user_id ) {
+            return;
+        }
 
         // Delete social connections
         $wpdb->delete( $wpdb->prefix . 'cf_social_connections', [ 'user_id' => $user_id ] );
@@ -152,6 +156,9 @@ class CF_Core {
         // Delete activity log entries for this user
         $wpdb->delete( $wpdb->prefix . 'cf_activity_log', [ 'user_id' => $user_id ] );
 
+        // Delete notifications for this user
+        $wpdb->delete( $wpdb->prefix . 'cf_notifications', [ 'user_id' => $user_id ] );
+
         // Delete user metadata added by the plugin
         delete_user_meta( $user_id, 'cf_email_verified' );
         delete_user_meta( $user_id, 'cf_account_status' );
@@ -162,6 +169,14 @@ class CF_Core {
         delete_user_meta( $user_id, 'cf_favorite_tracks' );
         delete_user_meta( $user_id, 'cf_favorite_albums' );
         delete_user_meta( $user_id, 'cf_last_active' );
+
+        if ( ! function_exists( 'wp_delete_user' ) ) {
+            require_once ABSPATH . 'wp-admin/includes/user.php';
+        }
+
+        remove_action( 'delete_user', [ $this, 'cleanup_user_on_delete' ] );
+        wp_delete_user( $user_id );
+        add_action( 'delete_user', [ $this, 'cleanup_user_on_delete' ] );
     }
 
     // Clean admin bar — remove "Howdy" etc (only runs if admin bar somehow shows)
@@ -177,6 +192,48 @@ class CF_Core {
             $wp_admin_bar->remove_node( 'new-content' );
             $wp_admin_bar->remove_node( 'comments' );
         }
+    }
+
+    public function notify_on_content_publish( $new_status, $old_status, $post ) {
+        if ( $new_status !== 'publish' || $old_status === 'publish' ) {
+            return;
+        }
+
+        if ( ! $post instanceof WP_Post ) {
+            return;
+        }
+
+        $type_map = [
+            'tracks' => 'new_track',
+            'albums' => 'new_album',
+            'post'   => 'new_article',
+        ];
+
+        if ( ! isset( $type_map[ $post->post_type ] ) ) {
+            return;
+        }
+
+        $notification_type = $type_map[ $post->post_type ];
+
+        $title_templates = [
+            'new_track'   => __( 'New track: %s', 'cf-auth' ),
+            'new_album'   => __( 'New album: %s', 'cf-auth' ),
+            'new_article' => __( 'New article: %s', 'cf-auth' ),
+        ];
+
+        $message_templates = [
+            'new_track'   => __( 'A new track just dropped on Collective Finity.', 'cf-auth' ),
+            'new_album'   => __( 'A new album just dropped on Collective Finity.', 'cf-auth' ),
+            'new_article' => __( 'A new article was published on Collective Finity.', 'cf-auth' ),
+        ];
+
+        CF_Notifications::create_for_all_users(
+            $notification_type,
+            sprintf( $title_templates[ $notification_type ], $post->post_title ),
+            $message_templates[ $notification_type ],
+            get_permalink( $post ),
+            (int) $post->post_author
+        );
     }
 
     public function custom_login_url( $url, $redirect, $force_reauth ) {

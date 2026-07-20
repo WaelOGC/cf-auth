@@ -57,6 +57,13 @@ class CF_Shortcodes {
         }
 
         $error = sanitize_text_field( $_GET['error'] ?? '' );
+        $logo_url = plugin_dir_url( __FILE__ ) . '../assets/img/icon-192.png';
+        $social_enabled_count = 0;
+        foreach ( [ 'google', 'facebook', 'discord', 'twitter' ] as $provider ) {
+            if ( $this->is_social_provider_enabled( $provider ) ) {
+                $social_enabled_count++;
+            }
+        }
         ob_start(); ?>
         <div class="cf-page-wrap">
             <div class="cf-auth-grid">
@@ -64,9 +71,11 @@ class CF_Shortcodes {
                 <!-- Left: Branding -->
                 <div class="cf-auth-brand">
                     <div class="cf-brand-inner">
-                        <div class="cf-brand-icon">⚡</div>
+                        <div class="cf-brand-icon">
+                            <img src="<?php echo esc_url( $logo_url ); ?>" alt="" width="64" height="64">
+                        </div>
                         <h2><?php _e( 'Welcome Back', 'cf-auth' ); ?></h2>
-                        <p><?php _e( 'Sign in and continue your cinematic music journey.', 'cf-auth' ); ?></p>
+                        <p><?php _e( 'We\'re glad to see you again. Sign in to pick up where you left off with your music, favorites, and listening history.', 'cf-auth' ); ?></p>
                         <div class="cf-brand-features">
                             <div class="cf-brand-feat"><span>🎵</span><?php _e( 'Unlimited streaming', 'cf-auth' ); ?></div>
                             <div class="cf-brand-feat"><span>♥</span><?php _e( 'Save your favorites', 'cf-auth' ); ?></div>
@@ -88,7 +97,7 @@ class CF_Shortcodes {
                         <?php endif; ?>
 
                         <!-- Social Buttons -->
-                        <div class="cf-social-grid">
+                        <div class="cf-social-grid cf-social-grid--<?php echo (int) $social_enabled_count; ?>">
                             <?php if ( $this->is_social_provider_enabled( 'google' ) ) : ?>
                             <button class="cf-social-btn" data-provider="google">
                                 <svg viewBox="0 0 24 24" width="18" height="18"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
@@ -117,7 +126,7 @@ class CF_Shortcodes {
 
                         <div class="cf-divider"><span><?php _e( 'or with email', 'cf-auth' ); ?></span></div>
 
-                        <form id="cf-login-form" class="cf-form" novalidate>
+                        <form id="cf-login-form" class="cf-form" method="post" novalidate>
                             <div id="cf-login-message" class="cf-message" style="display:none"></div>
 
                             <div class="cf-field">
@@ -168,14 +177,23 @@ class CF_Shortcodes {
                 <a href="' . esc_url(home_url('/cf-profile')) . '" class="cf-btn cf-btn-primary">' . __('My Account','cf-auth') . '</a>
             </div>');
         }
+        $logo_url = plugin_dir_url( __FILE__ ) . '../assets/img/icon-192.png';
+        $social_enabled_count = 0;
+        foreach ( [ 'google', 'facebook', 'discord', 'twitter' ] as $provider ) {
+            if ( $this->is_social_provider_enabled( $provider ) ) {
+                $social_enabled_count++;
+            }
+        }
         ob_start(); ?>
         <div class="cf-page-wrap">
             <div class="cf-auth-grid">
                 <div class="cf-auth-brand">
                     <div class="cf-brand-inner">
-                        <div class="cf-brand-icon">✦</div>
+                        <div class="cf-brand-icon">
+                            <img src="<?php echo esc_url( $logo_url ); ?>" alt="" width="64" height="64">
+                        </div>
                         <h2><?php _e( 'Join the Universe', 'cf-auth' ); ?></h2>
-                        <p><?php _e( 'Create your free listener account and become part of the Collective Finity community.', 'cf-auth' ); ?></p>
+                        <p><?php _e( 'Become part of a growing community of listeners who love cinematic music. Create your free account in under a minute and start exploring together.', 'cf-auth' ); ?></p>
                         <div class="cf-brand-features">
                             <div class="cf-brand-feat"><span>🆓</span><?php _e( 'Always free', 'cf-auth' ); ?></div>
                             <div class="cf-brand-feat"><span>🎧</span><?php _e( 'Full music access', 'cf-auth' ); ?></div>
@@ -191,7 +209,7 @@ class CF_Shortcodes {
                             <p><?php _e( 'Already a member?', 'cf-auth' ); ?> <a href="<?php echo esc_url(home_url('/cf-login')); ?>"><?php _e( 'Sign in', 'cf-auth' ); ?></a></p>
                         </div>
 
-                        <div class="cf-social-grid">
+                        <div class="cf-social-grid cf-social-grid--<?php echo (int) $social_enabled_count; ?>">
                             <?php if ( $this->is_social_provider_enabled( 'google' ) ) : ?>
                             <button class="cf-social-btn" data-provider="google">
                                 <svg viewBox="0 0 24 24" width="18" height="18"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
@@ -220,7 +238,7 @@ class CF_Shortcodes {
 
                         <div class="cf-divider"><span><?php _e( 'or with email', 'cf-auth' ); ?></span></div>
 
-                        <form id="cf-register-form" class="cf-form" novalidate>
+                        <form id="cf-register-form" class="cf-form" method="post" novalidate>
                             <div id="cf-register-message" class="cf-message" style="display:none"></div>
 
                             <div class="cf-field">
@@ -276,7 +294,7 @@ class CF_Shortcodes {
                     <h3><?php _e( 'Reset Password', 'cf-auth' ); ?></h3>
                     <p><?php _e( "Enter your email and we'll send you a reset link.", 'cf-auth' ); ?></p>
                 </div>
-                <form id="cf-forgot-form" class="cf-form" novalidate>
+                <form id="cf-forgot-form" class="cf-form" method="post" novalidate>
                     <div id="cf-forgot-message" class="cf-message" style="display:none"></div>
                     <div class="cf-field">
                         <label><?php _e( 'Email Address', 'cf-auth' ); ?></label>
@@ -330,7 +348,7 @@ class CF_Shortcodes {
                     <h3><?php _e( 'New Password', 'cf-auth' ); ?></h3>
                     <p><?php _e( 'Choose a strong password for your account.', 'cf-auth' ); ?></p>
                 </div>
-                <form id="cf-reset-form" class="cf-form" novalidate>
+                <form id="cf-reset-form" class="cf-form" method="post" novalidate>
                     <input type="hidden" name="token" value="<?php echo esc_attr($token); ?>">
                     <div id="cf-reset-message" class="cf-message" style="display:none"></div>
                     <div class="cf-field">
@@ -1196,7 +1214,7 @@ class CF_Shortcodes {
                 <?php if ( $provider === 'manual' ) : ?>
                 <div class="cf-section-card">
                     <h4 class="cf-section-title"><?php _e('Change Password','cf-auth'); ?></h4>
-                    <form id="cf-change-password-form" class="cf-form" novalidate>
+                    <form id="cf-change-password-form" class="cf-form" method="post" novalidate>
                         <div id="cf-password-message" class="cf-message" style="display:none"></div>
                         <div class="cf-field">
                             <label><?php _e('Current Password','cf-auth'); ?></label>
