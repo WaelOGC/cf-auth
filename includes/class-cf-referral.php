@@ -306,6 +306,31 @@ class CF_Referral {
             [ '%d' ]
         );
 
+        if ( class_exists( 'CF_Notifications' ) ) {
+            CF_Notifications::create_for_user(
+                $referrer_id,
+                'referral_confirmed',
+                __( 'Referral confirmed', 'cf-auth' ),
+                sprintf(
+                    /* translators: %s: Xfinity amount awarded */
+                    __( 'Your referral is confirmed — +%s Xfinity', 'cf-auth' ),
+                    $reward_referrer
+                ),
+                home_url( '/cf-profile#rewards' )
+            );
+            CF_Notifications::create_for_user(
+                $referred_user_id,
+                'referral_welcome',
+                __( 'Welcome bonus', 'cf-auth' ),
+                sprintf(
+                    /* translators: %s: Xfinity amount awarded */
+                    __( 'Welcome bonus — +%s Xfinity', 'cf-auth' ),
+                    $reward_referred
+                ),
+                home_url( '/cf-profile#rewards' )
+            );
+        }
+
         return true;
     }
 

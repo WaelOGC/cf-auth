@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════
-   CF Auth — Engagement Tracker (listening + reading)
+   CF Auth — Engagement Tracker (listening)
    Collective Finity
    ═══════════════════════════════════════════════════ */
 (function ($) {
@@ -65,17 +65,55 @@
         listeningPostId = 0;
     }
 
+    // ── Interaction reporter (extends / restarts the 30-min earning window) ───
+    // Throttled to at most once per 30 seconds so scrubbing doesn't spam AJAX.
+    let lastInteractionMs = 0;
+    const INTERACTION_THROTTLE_MS = 30000;
+
+    function reportInteraction(type) {
+        if (AUTH.is_logged_in !== '1') {
+            return;
+        }
+
+        const now = Date.now();
+        if (now - lastInteractionMs < INTERACTION_THROTTLE_MS) {
+            return;
+        }
+        lastInteractionMs = now;
+
+        post('cf_track_interaction', {
+            activity_type: 'listening',
+            interaction_type: type || 'click',
+        });
+    }
+
     // Custom events the theme/player can dispatch:
     //   document.dispatchEvent(new CustomEvent('cf:player:playing', { detail: { postId: 123 } }))
     //   document.dispatchEvent(new CustomEvent('cf:player:pause'))
+    //   document.dispatchEvent(new CustomEvent('cf:player:ended'))
+    //   document.dispatchEvent(new CustomEvent('cf:player:seeked', { detail: { postId: 123 } }))
+    //   document.dispatchEvent(new CustomEvent('cf:player:volume', { detail: { postId: 123 } }))
     document.addEventListener('cf:player:playing', function (e) {
         const id = e && e.detail && (e.detail.postId || e.detail.trackId || e.detail.post_id);
         if (id) {
             startListeningPings(id);
         }
+        reportInteraction('playing');
     });
-    document.addEventListener('cf:player:pause', stopListeningPings);
-    document.addEventListener('cf:player:ended', clearListeningSession);
+    document.addEventListener('cf:player:pause', function () {
+        stopListeningPings();
+        reportInteraction('pause');
+    });
+    document.addEventListener('cf:player:ended', function () {
+        clearListeningSession();
+        reportInteraction('ended');
+    });
+    document.addEventListener('cf:player:seeked', function () {
+        reportInteraction('seek');
+    });
+    document.addEventListener('cf:player:volume', function () {
+        reportInteraction('volume');
+    });
 
     // HTML5 media fallback: play/pause on <audio>/<video> with data-track-id / data-post-id.
     function mediaPostId(el) {
@@ -96,9 +134,21 @@
         if (id) {
             startListeningPings(id);
         }
+        reportInteraction('playing');
     });
-    $(document).on('pause ended', 'audio, video', function () {
+    $(document).on('pause', 'audio, video', function () {
         stopListeningPings();
+        reportInteraction('pause');
+    });
+    $(document).on('ended', 'audio, video', function () {
+        stopListeningPings();
+        reportInteraction('ended');
+    });
+    $(document).on('seeked', 'audio, video', function () {
+        reportInteraction('seek');
+    });
+    $(document).on('volumechange', 'audio, video', function () {
+        reportInteraction('volume');
     });
 
     // Piggyback on existing CF_Auth.logListening(trackId) integration used by the player.
@@ -115,77 +165,5 @@
         window.CF_Auth.stopListeningPings = stopListeningPings;
     }
     patchCfAuthApi();
-
-    // ── Reading pings (article pages; server verifies token + event timing) ───
-    if (CFG.is_article === '1' && AUTH.is_logged_in === '1') {
-        const articlePostId = parseInt(CFG.post_id, 10) || 0;
-        let readingToken = '';
-        let eventTimestamps = [];
-        let lastEventPushMs = 0;
-        let pingInFlight = false;
-
-        function recordActivity() {
-            const now = Date.now();
-            // Throttle to at most one timestamp per second to keep the payload small.
-            if (now - lastEventPushMs < 1000) {
-                return;
-            }
-            lastEventPushMs = now;
-            eventTimestamps.push(now);
-        }
-
-        function startReadingWindow() {
-            if (!articlePostId) {
-                return $.Deferred().reject().promise();
-            }
-            return post('cf_start_reading_window', { post_id: articlePostId })
-                .then(function (r) {
-                    if (r && r.success && r.data && r.data.token) {
-                        readingToken = r.data.token;
-                        return readingToken;
-                    }
-                    readingToken = '';
-                    return $.Deferred().reject(r).promise();
-                });
-        }
-
-        function sendReadingPing() {
-            if (!articlePostId || !readingToken || pingInFlight) {
-                return;
-            }
-
-            // Snapshot + clear before the request so concurrent events go to the next window.
-            const token = readingToken;
-            const events = eventTimestamps.slice();
-            eventTimestamps = [];
-            readingToken = '';
-            pingInFlight = true;
-
-            post('cf_track_reading_ping', {
-                post_id: articlePostId,
-                activity_token: token,
-                events: JSON.stringify(events),
-            })
-                .always(function () {
-                    pingInFlight = false;
-                    // Fresh token for the next ~60s window (required before the next award).
-                    startReadingWindow();
-                });
-        }
-
-        // Any of these signals counts as "reading" for the current window.
-        $(document).on('scroll.cfEngagement mousemove.cfEngagement keydown.cfEngagement', recordActivity);
-        $(window).on('scroll.cfEngagement', recordActivity);
-
-        // First window token on page load, then ping on the interval.
-        startReadingWindow();
-        setInterval(function () {
-            if (!readingToken && !pingInFlight) {
-                startReadingWindow();
-                return;
-            }
-            sendReadingPing();
-        }, pingMs);
-    }
 
 })(jQuery);

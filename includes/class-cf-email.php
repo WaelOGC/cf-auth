@@ -96,6 +96,161 @@ class CF_Email {
         self::send( $user->user_email, $subject, $message );
     }
 
+    // ── Daily Xfinity Summary ─────────────────────────────────────────────────
+    /**
+     * Email a 24h earnings digest. Skips sending when the user earned 0.
+     *
+     * @param int $user_id
+     * @return bool True if an email was sent.
+     */
+    public static function send_daily_xfinity_summary( $user_id ) {
+        $user = get_userdata( $user_id );
+        if ( ! $user || ! $user->user_email ) {
+            return false;
+        }
+
+        $stats = self::get_xfinity_period_stats( (int) $user_id, 1 );
+        if ( $stats['xfinity_earned'] <= 0 ) {
+            return false;
+        }
+
+        $subject = __( 'Your daily Xfinity summary — Collective Finity', 'cf-auth' );
+        $message = self::get_template( 'daily-xfinity-summary', [
+            'display_name'    => $user->display_name,
+            'xfinity_earned'  => number_format( $stats['xfinity_earned'], 2 ),
+            'listening_mins'  => (int) $stats['listening_mins'],
+            'referrals'       => (int) $stats['referrals'],
+            'rewards_url'     => home_url( '/cf-profile#rewards' ),
+        ] );
+        self::send( $user->user_email, $subject, $message );
+        return true;
+    }
+
+    // ── Weekly Xfinity Summary ────────────────────────────────────────────────
+    /**
+     * Email a 7-day earnings digest with day-by-day breakdown + current balance.
+     * Skips sending when the user earned 0 in the period.
+     *
+     * @param int $user_id
+     * @return bool True if an email was sent.
+     */
+    public static function send_weekly_xfinity_summary( $user_id ) {
+        $user = get_userdata( $user_id );
+        if ( ! $user || ! $user->user_email ) {
+            return false;
+        }
+
+        $stats = self::get_xfinity_period_stats( (int) $user_id, 7 );
+        if ( $stats['xfinity_earned'] <= 0 ) {
+            return false;
+        }
+
+        $balance = 0.0;
+        if ( class_exists( 'CF_Xfinity' ) ) {
+            $balance = CF_Xfinity::get_instance()->get_balance( (int) $user_id );
+        }
+
+        $subject = __( 'Your weekly Xfinity summary — Collective Finity', 'cf-auth' );
+        $message = self::get_template( 'weekly-xfinity-summary', [
+            'display_name'    => $user->display_name,
+            'xfinity_earned'  => number_format( $stats['xfinity_earned'], 2 ),
+            'listening_mins'  => (int) $stats['listening_mins'],
+            'referrals'       => (int) $stats['referrals'],
+            'balance'         => number_format( $balance, 2 ),
+            'daily_breakdown' => $stats['daily_breakdown'],
+            'rewards_url'     => home_url( '/cf-profile#rewards' ),
+        ] );
+        self::send( $user->user_email, $subject, $message );
+        return true;
+    }
+
+    /**
+     * Aggregate engagement + referral stats for a user over the last N days.
+     *
+     * @param int $user_id
+     * @param int $days
+     * @return array{xfinity_earned: float, listening_mins: int, referrals: int, daily_breakdown: string}
+     */
+    private static function get_xfinity_period_stats( $user_id, $days ) {
+        global $wpdb;
+
+        $user_id = absint( $user_id );
+        $days    = max( 1, absint( $days ) );
+
+        // Site-local time matches "created_at" columns written with current_time('mysql').
+        $since_local = date( 'Y-m-d H:i:s', current_time( 'timestamp' ) - ( $days * DAY_IN_SECONDS ) );
+
+        $sessions_table = $wpdb->prefix . 'cf_engagement_sessions';
+        $row = $wpdb->get_row( $wpdb->prepare(
+            "SELECT
+                COALESCE(SUM(xfinity_earned), 0) AS xfinity_earned,
+                COALESCE(SUM(CASE WHEN activity_type = 'listening' THEN duration_seconds ELSE 0 END), 0) AS listening_seconds
+             FROM {$sessions_table}
+             WHERE user_id = %d
+               AND is_valid = 1
+               AND created_at >= %s",
+            $user_id,
+            $since_local
+        ) );
+
+        $xfinity_earned  = round( (float) ( $row->xfinity_earned ?? 0 ), 2 );
+        $listening_mins  = (int) floor( ( (int) ( $row->listening_seconds ?? 0 ) ) / 60 );
+
+        $referrals = 0;
+        if ( class_exists( 'CF_Referral' ) ) {
+            $referrals = (int) $wpdb->get_var( $wpdb->prepare(
+                "SELECT COUNT(*) FROM " . CF_Referral::referrals_table() . "
+                 WHERE referrer_user_id = %d
+                   AND status = 'confirmed'
+                   AND confirmed_at >= %s",
+                $user_id,
+                $since_local
+            ) );
+        }
+
+        // Also count ledger earnings that aren't session-backed (e.g. referral bonuses)
+        // so digests aren't undercounted if referrals aren't in engagement_sessions.
+        $ledger_extra = (float) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COALESCE(SUM(amount), 0) FROM " . CF_Xfinity::ledger_table() . "
+             WHERE user_id = %d
+               AND amount > 0
+               AND source IN ('referral_referrer', 'referral_new_user')
+               AND created_at >= %s",
+            $user_id,
+            $since_local
+        ) );
+        $xfinity_earned = round( $xfinity_earned + $ledger_extra, 2 );
+
+        $daily_breakdown = '';
+        if ( $days > 1 ) {
+            $day_rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT DATE(created_at) AS day_date, COALESCE(SUM(xfinity_earned), 0) AS day_total
+                 FROM {$sessions_table}
+                 WHERE user_id = %d
+                   AND is_valid = 1
+                   AND created_at >= %s
+                 GROUP BY DATE(created_at)
+                 ORDER BY day_date ASC",
+                $user_id,
+                $since_local
+            ) );
+
+            $lines = [];
+            foreach ( (array) $day_rows as $day_row ) {
+                $label   = date_i18n( get_option( 'date_format' ), strtotime( $day_row->day_date ) );
+                $lines[] = $label . ': ' . number_format( (float) $day_row->day_total, 2 ) . ' Xfinity';
+            }
+            $daily_breakdown = implode( "\n", $lines );
+        }
+
+        return [
+            'xfinity_earned'  => $xfinity_earned,
+            'listening_mins'  => $listening_mins,
+            'referrals'       => $referrals,
+            'daily_breakdown' => $daily_breakdown,
+        ];
+    }
+
     // ── Core send function ────────────────────────────────────────────────────
     private static function send( $to, $subject, $message ) {
         $headers = [
@@ -180,6 +335,39 @@ class CF_Email {
                 <p style="' . $p_style . '">Good news — your review on the Collective Finity platform has been approved and is now live for everyone to see.</p>
                 <p style="' . $p_style . '">Thank you for sharing your experience with the community.</p>
                 <p style="' . $p_style . '"><a href="' . esc_url( home_url( '/privacy-policy' ) ) . '" style="color:#555555;text-decoration:none;">Privacy Policy</a> | <a href="' . esc_url( home_url( '/contact-us' ) ) . '" style="color:#555555;text-decoration:none;">Contact Us</a></p>';
+                break;
+
+            case 'daily-xfinity-summary':
+                $body = '<p style="' . $p_greet . '">Hey <strong>' . esc_html( $vars['display_name'] ) . '</strong>,</p>
+                <p style="' . $p_style . '">Here\'s your Xfinity activity from the last 24 hours:</p>
+                <p style="' . $p_style . '"><strong style="color:#FFB800;">+' . esc_html( $vars['xfinity_earned'] ) . ' Xfinity</strong> earned<br>
+                ' . esc_html( (string) $vars['listening_mins'] ) . ' minutes listening<br>
+                ' . esc_html( (string) $vars['referrals'] ) . ' referral(s) confirmed</p>
+                <p style="margin:0 0 16px;text-align:center;font-family:monospace;"><a href="' . esc_url( $vars['rewards_url'] ) . '" style="' . $btn_style . '">View Rewards</a></p>';
+                break;
+
+            case 'weekly-xfinity-summary':
+                $breakdown_html = '';
+                if ( ! empty( $vars['daily_breakdown'] ) ) {
+                    $lines = preg_split( '/\r\n|\r|\n/', (string) $vars['daily_breakdown'] );
+                    $breakdown_html = '<p style="' . $p_style . '"><strong style="color:#ffffff;">Day by day</strong><br>';
+                    foreach ( $lines as $line ) {
+                        $line = trim( $line );
+                        if ( $line === '' ) {
+                            continue;
+                        }
+                        $breakdown_html .= esc_html( $line ) . '<br>';
+                    }
+                    $breakdown_html .= '</p>';
+                }
+                $body = '<p style="' . $p_greet . '">Hey <strong>' . esc_html( $vars['display_name'] ) . '</strong>,</p>
+                <p style="' . $p_style . '">Here\'s your Xfinity activity from the last 7 days:</p>
+                <p style="' . $p_style . '"><strong style="color:#FFB800;">+' . esc_html( $vars['xfinity_earned'] ) . ' Xfinity</strong> earned<br>
+                ' . esc_html( (string) $vars['listening_mins'] ) . ' minutes listening<br>
+                ' . esc_html( (string) $vars['referrals'] ) . ' referral(s) confirmed<br>
+                Current balance: <strong style="color:#FFB800;">' . esc_html( $vars['balance'] ) . ' Xfinity</strong></p>
+                ' . $breakdown_html . '
+                <p style="margin:0 0 16px;text-align:center;font-family:monospace;"><a href="' . esc_url( $vars['rewards_url'] ) . '" style="' . $btn_style . '">View Rewards</a></p>';
                 break;
 
             default:

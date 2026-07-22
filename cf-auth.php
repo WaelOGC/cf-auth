@@ -36,6 +36,7 @@ require_once CF_AUTH_DIR . 'includes/class-cf-notifications.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-xfinity.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-engagement-tracker.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-referral.php';
+require_once CF_AUTH_DIR . 'includes/class-cf-digests.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-migration.php';
 
 add_action( 'plugins_loaded', [ 'CF_Install', 'maybe_upgrade' ], 5 );
@@ -69,6 +70,7 @@ function cf_auth_init() {
     CF_Xfinity::get_instance();
     CF_Engagement_Tracker::get_instance();
     CF_Referral::get_instance();
+    CF_Digests::get_instance();
     CF_Migration::migrate_legacy_favorites();
 }
 add_action( 'plugins_loaded', 'cf_auth_init' );

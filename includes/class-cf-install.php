@@ -12,10 +12,12 @@ class CF_Install {
         self::create_roles();
         self::create_pages();
         self::set_default_options();
+        CF_Digests::maybe_schedule_events();
         flush_rewrite_rules();
     }
 
     public static function deactivate() {
+        CF_Digests::clear_scheduled_events();
         flush_rewrite_rules();
     }
 
@@ -155,7 +157,7 @@ class CF_Install {
             INDEX idx_user_id (user_id)
         ) $charset;";
 
-        // Engagement sessions (listening / reading)
+        // Engagement sessions (listening)
         $sql10 = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}cf_engagement_sessions (
             id               BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             user_id          BIGINT UNSIGNED NOT NULL,

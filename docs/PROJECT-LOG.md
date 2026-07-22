@@ -18,12 +18,14 @@ This file tracks every feature, fix, and pending item implemented in the cf-auth
 - `send_welcome($user_id)` — sent after successful email verification
 - `send_feedback_confirmation($user_id)` — sent after FAQ platform review submission
 - `send_review_published($user_id)` — sent when an admin approves a pending review comment
+- `send_daily_xfinity_summary($user_id)` / `send_weekly_xfinity_summary($user_id)` — cron digests; skip if 0 earned in the period
 - All templates use table-based HTML with fully inline `style=""` attributes (required for Gmail, which strips `<style>` blocks)
 
 ### Notifications System (Polling-based)
 - Table: `wp_cf_notifications` (id, user_id, type, title, message, link, is_read, created_at)
 - `class-cf-notifications.php` — singleton, AJAX handlers `cf_get_notifications` and `cf_mark_notifications_read`
-- Triggered via `transition_post_status` hook in `class-cf-core.php` when a track, album, or article is published
+- `create_for_user()` for per-user rows; `create_for_all_users()` for broadcasts
+- Triggered via `transition_post_status` hook in `class-cf-core.php` when a track, album, or article is published; also listening whole-point earns + referral confirm
 - Real-time (WebSocket/push) delivery is a planned future phase, not yet built
 
 ### User Profile (`class-cf-profile.php`)
@@ -63,11 +65,13 @@ This file tracks every feature, fix, and pending item implemented in the cf-auth
 
 ### Xfinity Engagement, Referrals & Milestones
 - Currency **"Xfinity"** tracked via append-only ledger table `cf_xfinity_ledger` + cached `cf_xfinity_balance` user meta (`class-cf-xfinity.php`)
-- Earn rates (constants): listening 0.1/min, reading 0.05/min, referral 5+5 (referrer + new user)
-- Engagement pings (`class-cf-engagement-tracker.php` + `assets/js/cf-engagement-tracker.js`): AJAX `cf_track_listening_ping` / `cf_track_reading_ping` every 60s; server anti-cheat rate-limits to 1 ping per 55s per user+activity; reading requires scroll/mousemove/keydown activity in the window
+- Earn rates (constants): listening 0.1/min, referral 5+5 (referrer + new user) — reading/scrolling earnings removed (listening-only)
+- Engagement pings (`class-cf-engagement-tracker.php` + `assets/js/cf-engagement-tracker.js`): AJAX `cf_track_listening_ping` every 60s; server anti-cheat = 55s rate floor **plus** a real **30-minute activity window** (`cf_eng_window_anchor_listening` user meta). Plain pings do not advance the anchor; stale windows return `window_expired` until a genuine interaction (`cf_track_interaction`: pause/skip/volume/seek/click/ended) resets it
+- Per-user bell notifications via `CF_Notifications::create_for_user()`: whole-point listening earnings, referral confirm (both parties); publish still uses `create_for_all_users()` via `CF_Core::notify_on_content_publish`
+- Daily + weekly Xfinity digest emails (`CF_Email::send_daily_xfinity_summary` / `send_weekly_xfinity_summary`) via WP-Cron hooks `cf_daily_xfinity_digest` / `cf_weekly_xfinity_digest` (`class-cf-digests.php`); skips users with 0 earned; registers custom `weekly` cron interval
 - Referrals (`class-cf-referral.php`): unique 8-char code per user, `?ref=` cookie (30 days), pending row on signup, confirm on email verify or first engagement; same-IP referrer/referred → `flagged_fake` (no award)
 - Milestones at 1000 / 5000 / 10000 (filterable via `cf_xfinity_milestone_thresholds`): insert `pending_review` only — admin sends rewards manually (no auto-send)
-- DB tables created via `CF_Install` dbDelta upgrade (`DB_VERSION` 5): `cf_xfinity_ledger`, `cf_engagement_sessions`, `cf_referrals`, `cf_referral_codes`, `cf_xfinity_milestones`
+- DB tables created via `CF_Install` dbDelta upgrade (`DB_VERSION` 5): `cf_xfinity_ledger`, `cf_engagement_sessions`, `cf_referrals`, `cf_referral_codes`, `cf_xfinity_milestones` — **no DB_VERSION bump needed** for the 30-min window / digests pass (user meta + existing notifications table only)
 
 ### Hook Registration Fixes (v2.0.2-fix1)
 - Removed nested `wp_delete_user()` / re-`add_action( 'delete_user' )` inside `cleanup_user_on_delete()` — cleanup stays registered once in `register_hooks()` and runs a single time when WordPress fires `delete_user`

@@ -8,9 +8,6 @@ class CF_Xfinity {
     /** Xfinity earned per valid listening minute. */
     const LISTENING_RATE_PER_MINUTE = 0.1;
 
-    /** Xfinity earned per valid reading minute. */
-    const READING_RATE_PER_MINUTE = 0.05;
-
     /** Xfinity awarded to the referrer when a referral is confirmed. */
     const REFERRAL_REWARD_REFERRER = 5;
 

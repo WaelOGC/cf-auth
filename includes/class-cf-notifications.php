@@ -18,6 +18,40 @@ class CF_Notifications {
     }
 
     /**
+     * Insert a single notification for one user.
+     *
+     * @param int    $user_id Target user.
+     * @param string $type    Notification type slug.
+     * @param string $title   Short title.
+     * @param string $message Body text.
+     * @param string $link    Optional URL.
+     * @return int|false Insert ID / rows affected, or false on failure.
+     */
+    public static function create_for_user( $user_id, $type, $title, $message, $link = '' ) {
+        global $wpdb;
+
+        $user_id = absint( $user_id );
+        if ( ! $user_id ) {
+            return false;
+        }
+
+        $table = $wpdb->prefix . 'cf_notifications';
+        return $wpdb->insert(
+            $table,
+            [
+                'user_id'    => $user_id,
+                'type'       => sanitize_key( $type ),
+                'title'      => sanitize_text_field( $title ),
+                'message'    => sanitize_textarea_field( $message ),
+                'link'       => $link ? esc_url_raw( $link ) : null,
+                'is_read'    => 0,
+                'created_at' => current_time( 'mysql' ),
+            ],
+            [ '%d', '%s', '%s', '%s', '%s', '%d', '%s' ]
+        );
+    }
+
+    /**
      * Insert one notification row per cf_listener user.
      *
      * @param string $type    Notification type slug.

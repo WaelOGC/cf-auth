@@ -14,14 +14,8 @@ class CF_Engagement_Tracker {
     /** Seconds of engagement credited per accepted ping. */
     const PING_DURATION_SECONDS = 60;
 
-    /** Extra seconds the reading-window token may live beyond one ping duration. */
-    const READING_WINDOW_GRACE_SECONDS = 15;
-
-    /** Minimum real client events required in a reading window. */
-    const READING_MIN_EVENTS = 3;
-
-    /** Minimum spread (ms) between earliest and latest event timestamps. */
-    const READING_MIN_SPREAD_MS = 10000;
+    /** Max seconds an activity window can earn without a real interaction. */
+    const WINDOW_SECONDS = 1800;
 
     public static function get_instance() {
         if ( null === self::$instance ) {
@@ -32,8 +26,7 @@ class CF_Engagement_Tracker {
 
     private function __construct() {
         add_action( 'wp_ajax_cf_track_listening_ping', [ $this, 'handle_listening_ping' ] );
-        add_action( 'wp_ajax_cf_track_reading_ping',   [ $this, 'handle_reading_ping' ] );
-        add_action( 'wp_ajax_cf_start_reading_window', [ $this, 'handle_start_reading_window' ] );
+        add_action( 'wp_ajax_cf_track_interaction',    [ $this, 'handle_interaction' ] );
         add_action( 'wp_enqueue_scripts',              [ $this, 'enqueue_scripts' ] );
     }
 
@@ -43,15 +36,14 @@ class CF_Engagement_Tracker {
     }
 
     /**
-     * Enqueue tracker JS only for logged-in users on pages where engagement can occur
-     * (articles for reading; anywhere else for the site-wide music player).
+     * Enqueue tracker JS only for logged-in users on pages where listening can occur.
      */
     public function enqueue_scripts() {
         if ( ! is_user_logged_in() || is_admin() ) {
             return;
         }
 
-        // Skip dedicated auth pages — no player / article reading there.
+        // Skip dedicated auth pages — no player there.
         if ( is_singular() ) {
             $post = get_post();
             if ( $post instanceof WP_Post ) {
@@ -71,11 +63,10 @@ class CF_Engagement_Tracker {
         );
 
         wp_localize_script( 'cf-engagement-tracker', 'CF_ENGAGEMENT', [
-            'ajax_url'     => admin_url( 'admin-ajax.php' ),
-            'nonce'        => wp_create_nonce( 'cf_auth_nonce' ),
-            'post_id'      => is_singular() ? (int) get_queried_object_id() : 0,
-            'is_article'   => ( is_singular( 'post' ) ? '1' : '0' ),
-            'ping_ms'      => 60000,
+            'ajax_url' => admin_url( 'admin-ajax.php' ),
+            'nonce'    => wp_create_nonce( 'cf_auth_nonce' ),
+            'post_id'  => is_singular() ? (int) get_queried_object_id() : 0,
+            'ping_ms'  => 60000,
         ] );
     }
 
@@ -84,172 +75,44 @@ class CF_Engagement_Tracker {
     }
 
     /**
-     * Issue a short-lived activity token for the next ~60s reading window.
-     * The matching cf_track_reading_ping must present this token (once) to earn.
+     * Genuine player interaction — extends (or restarts) the 30-minute earning window.
+     * Does not credit Xfinity by itself; subsequent listening pings do.
+     * Server-throttled so it cannot be spammed to keep the window alive artificially.
      */
-    public function handle_start_reading_window() {
+    public function handle_interaction() {
         check_ajax_referer( 'cf_auth_nonce', 'nonce' );
 
         if ( ! is_user_logged_in() ) {
             wp_send_json_error( [ 'message' => __( 'Unauthorized', 'cf-auth' ) ], 401 );
         }
 
-        $user_id = get_current_user_id();
-        $post_id = absint( $_POST['post_id'] ?? 0 );
+        $user_id          = get_current_user_id();
+        $activity_type    = sanitize_key( $_POST['activity_type'] ?? 'listening' );
+        $interaction_type = sanitize_key( $_POST['interaction_type'] ?? '' );
 
-        if ( ! $post_id ) {
-            wp_send_json_error( [ 'message' => __( 'Invalid content.', 'cf-auth' ) ] );
+        if ( $activity_type === '' ) {
+            $activity_type = 'listening';
         }
 
-        $token = bin2hex( random_bytes( 16 ) );
-        $ttl   = self::PING_DURATION_SECONDS + self::READING_WINDOW_GRACE_SECONDS;
+        // Throttle so this can't be spammed as a way to keep the window alive artificially.
+        // $interaction_type is accepted (pause|playing|ended|seek|volume|…) but not required to reset.
+        $throttle_key = 'cf_eng_interact_' . $user_id . '_' . $activity_type;
+        if ( ! get_transient( $throttle_key ) ) {
+            set_transient( $throttle_key, 1, 30 );
+            update_user_meta( $user_id, 'cf_eng_window_anchor_' . $activity_type, time() );
+        }
 
-        set_transient(
-            $this->reading_window_transient_key( $user_id, $post_id ),
-            [
-                'token'  => $token,
-                'events' => [],
-            ],
-            $ttl
-        );
-
-        wp_send_json_success( [
-            'token'   => $token,
-            'expires' => $ttl,
-        ] );
+        wp_send_json_success( [ 'reset' => true ] );
     }
 
     /**
-     * Reading ping: validate the per-window activity token + event timestamps
-     * before awarding. Listening flow is unchanged (see handle_listening_ping).
-     */
-    public function handle_reading_ping() {
-        check_ajax_referer( 'cf_auth_nonce', 'nonce' );
-
-        if ( ! is_user_logged_in() ) {
-            wp_send_json_error( [ 'message' => __( 'Unauthorized', 'cf-auth' ) ], 401 );
-        }
-
-        $user_id = get_current_user_id();
-        $post_id = absint( $_POST['post_id'] ?? 0 );
-
-        if ( ! $post_id ) {
-            wp_send_json_error( [ 'message' => __( 'Invalid content.', 'cf-auth' ) ] );
-        }
-
-        $token  = sanitize_text_field( wp_unslash( $_POST['activity_token'] ?? '' ) );
-        $events = $this->parse_reading_events( $_POST['events'] ?? [] );
-
-        // Soft reject — no award, no detail that would help an attacker iterate.
-        if ( ! $this->validate_reading_activity( $user_id, $post_id, $token, $events ) ) {
-            wp_send_json_success( [ 'awarded' => false ] );
-        }
-
-        $this->handle_ping( 'reading', CF_Xfinity::READING_RATE_PER_MINUTE );
-    }
-
-    /**
-     * LIMITATION (read before tightening further):
-     * This check meaningfully blocks casual abuse — direct AJAX calls without a
-     * prior cf_start_reading_window, replay of a captured ping (token is
-     * single-use), and naive scripts that invent zero/clustered timestamps.
-     * It does NOT stop a sophisticated bot that drives a real browser (or fully
-     * simulates timed DOM events) and completes the start-window → collect →
-     * ping handshake. There is no fully bulletproof server-side proof of
-     * "a human was reading"; treat this as raising the bar, not as a seal.
+     * Listening ping handler with 30-minute activity-window anti-cheat.
      *
-     * @param int    $user_id
-     * @param int    $post_id
-     * @param string $token
-     * @param int[]  $events  Client Date.now() timestamps (ms).
-     * @return bool
-     */
-    private function validate_reading_activity( $user_id, $post_id, $token, array $events ) {
-        if ( $token === '' ) {
-            return false;
-        }
-
-        $key  = $this->reading_window_transient_key( $user_id, $post_id );
-        $data = get_transient( $key );
-
-        // Consume immediately so a captured valid request cannot be replayed.
-        delete_transient( $key );
-
-        if ( ! is_array( $data ) || empty( $data['token'] ) ) {
-            return false;
-        }
-
-        // (a) Token must match the one issued for this user + post window.
-        if ( ! hash_equals( (string) $data['token'], $token ) ) {
-            return false;
-        }
-
-        // (c) Enough distinct activity signals in the window.
-        $events = array_values( array_unique( array_map( 'intval', $events ) ) );
-        if ( count( $events ) < self::READING_MIN_EVENTS ) {
-            return false;
-        }
-
-        sort( $events, SORT_NUMERIC );
-        $min_ts = $events[0];
-        $max_ts = $events[ count( $events ) - 1 ];
-        $now_ms = (int) round( microtime( true ) * 1000 );
-        $max_age_ms = ( self::PING_DURATION_SECONDS + self::READING_WINDOW_GRACE_SECONDS ) * 1000;
-
-        // (d) Timestamps must be spread across the window, not batched in one burst.
-        if ( ( $max_ts - $min_ts ) < self::READING_MIN_SPREAD_MS ) {
-            return false;
-        }
-
-        // (e) All timestamps must be sane relative to "now" (no future, not too old).
-        foreach ( $events as $ts ) {
-            if ( $ts > $now_ms + 5000 ) { // 5s skew allowance
-                return false;
-            }
-            if ( $ts < ( $now_ms - $max_age_ms ) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * @param mixed $raw
-     * @return int[]
-     */
-    private function parse_reading_events( $raw ) {
-        if ( is_string( $raw ) ) {
-            $decoded = json_decode( wp_unslash( $raw ), true );
-            $raw     = is_array( $decoded ) ? $decoded : [];
-        }
-
-        if ( ! is_array( $raw ) ) {
-            return [];
-        }
-
-        $out = [];
-        foreach ( $raw as $ts ) {
-            if ( is_numeric( $ts ) ) {
-                $out[] = (int) $ts;
-            }
-        }
-        return $out;
-    }
-
-    /**
-     * @param int $user_id
-     * @param int $post_id
-     * @return string
-     */
-    private function reading_window_transient_key( $user_id, $post_id ) {
-        return 'cf_read_win_' . absint( $user_id ) . '_' . absint( $post_id );
-    }
-
-    /**
-     * Shared ping handler for listening and (post-validation) reading.
+     * Anchor meta `cf_eng_window_anchor_{$activity_type}` is the last moment we know
+     * the user was genuinely present (playback start or a real interaction). Plain
+     * pings do NOT advance the anchor — idle tabs stop earning once it goes stale.
      *
-     * @param string $activity_type listening|reading
+     * @param string $activity_type Currently only listening.
      * @param float  $rate          Xfinity per minute for this activity.
      */
     private function handle_ping( $activity_type, $rate ) {
@@ -276,8 +139,26 @@ class CF_Engagement_Tracker {
                 'reason'  => 'rate_limited',
             ] );
         }
-
         set_transient( $rate_key, 1, self::PING_MIN_INTERVAL );
+
+        // 30-minute activity window — anchor is last known-genuine moment (play-start or interaction).
+        // Plain pings do NOT advance the anchor.
+        $anchor_key = 'cf_eng_window_anchor_' . $activity_type;
+        $anchor     = (int) get_user_meta( $user_id, $anchor_key, true );
+        $now        = time();
+
+        if ( ! $anchor ) {
+            // First ping of a fresh session — grace period starts now.
+            update_user_meta( $user_id, $anchor_key, $now );
+        } elseif ( ( $now - $anchor ) > self::WINDOW_SECONDS ) {
+            // 30+ minutes since the last known-genuine moment with zero interaction —
+            // stop crediting. Anchor stays stale on purpose; only cf_track_interaction resets it.
+            wp_send_json_success( [
+                'awarded' => false,
+                'reason'  => 'window_expired',
+            ] );
+        }
+        // else: within the 30-minute window — credit normally, anchor NOT advanced by a plain ping.
 
         // Track last-seen IP for referral anti-cheat comparisons.
         $ip = sanitize_text_field( $_SERVER['REMOTE_ADDR'] ?? '' );
@@ -285,7 +166,7 @@ class CF_Engagement_Tracker {
             update_user_meta( $user_id, 'cf_last_ip', $ip );
         }
 
-        $xfinity = round( (float) $rate, 2 );
+        $xfinity  = round( (float) $rate, 2 );
         $is_valid = 1;
 
         global $wpdb;
@@ -309,6 +190,31 @@ class CF_Engagement_Tracker {
             $activity_type,
             $post_id
         );
+
+        // Notify only when the running balance crosses a whole Xfinity point
+        // (transient holds last notified whole number so this doesn't fire every 60s).
+        if ( $balance !== false && class_exists( 'CF_Notifications' ) ) {
+            $threshold_key   = 'cf_eng_notif_threshold_' . $user_id;
+            $stored          = get_transient( $threshold_key );
+            $balance_before  = round( (float) $balance - (float) $xfinity, 2 );
+            $last_notified   = ( false === $stored )
+                ? (int) floor( $balance_before ) // seed so existing balances don't backfill-notify
+                : (int) $stored;
+            $current_whole = (int) floor( (float) $balance );
+
+            if ( $current_whole > $last_notified ) {
+                CF_Notifications::create_for_user(
+                    $user_id,
+                    'xfinity_earned',
+                    __( 'You earned Xfinity', 'cf-auth' ),
+                    sprintf( __( '+%s Xfinity from listening.', 'cf-auth' ), $xfinity ),
+                    home_url( '/cf-profile#rewards' )
+                );
+                set_transient( $threshold_key, $current_whole, DAY_IN_SECONDS );
+            } elseif ( false === $stored ) {
+                set_transient( $threshold_key, $last_notified, DAY_IN_SECONDS );
+            }
+        }
 
         // Confirm pending referral once the referred user shows real engagement.
         if ( class_exists( 'CF_Referral' ) ) {
