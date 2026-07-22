@@ -15,6 +15,7 @@ li.cf-user-menu-item {
     list-style: none !important;
     display: flex !important;
     align-items: center !important;
+    gap: 8px !important;
     padding: 0 !important;
     margin: 0 !important;
     background: none !important;
@@ -269,4 +270,194 @@ li.cf-user-menu-item {
 ul.menu {
     display: flex;
     align-items: center;
+}
+
+/* ═══════════════════════════════════════════════════
+   Notification Bell
+   ═══════════════════════════════════════════════════ */
+
+.cf-notif-bell {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    z-index: 9999;
+}
+
+.cf-notif-bell-btn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    background: rgba(255, 184, 0, 0.08);
+    border: 1.5px solid rgba(255, 184, 0, 0.3);
+    border-radius: 50%;
+    cursor: pointer;
+    color: #FFB800;
+    outline: none;
+    transition: all 0.2s ease;
+}
+.cf-notif-bell-btn:hover,
+.cf-notif-bell-btn.is-open {
+    background: rgba(255, 184, 0, 0.15);
+    border-color: rgba(255, 184, 0, 0.7);
+    box-shadow: 0 0 12px rgba(255, 184, 0, 0.15);
+}
+
+.cf-notif-badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    border-radius: 50px;
+    background: #e63939;
+    border: 2px solid #111;
+    color: #fff;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+.cf-notif-dropdown {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    width: 320px;
+    background: #111111;
+    border: 1px solid #2a2a2a;
+    border-radius: 14px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255,184,0,0.05);
+    overflow: hidden;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px) scale(0.97);
+    transform-origin: top right;
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+    pointer-events: none;
+}
+.cf-notif-dropdown.is-open {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0) scale(1);
+    pointer-events: all;
+}
+
+.cf-notif-dropdown-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    background: linear-gradient(135deg, #1a1a1a 0%, #161616 100%);
+    border-bottom: 1px solid #222;
+    font-family: 'Mulish', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: #fff;
+}
+
+.cf-notif-mark-all {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: #FFB800;
+    opacity: 0.85;
+    transition: opacity 0.15s ease;
+}
+.cf-notif-mark-all:hover {
+    opacity: 1;
+}
+
+.cf-notif-list {
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 6px;
+}
+
+.cf-notif-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    text-decoration: none;
+    color: #ccc;
+    border-left: 3px solid transparent;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.cf-notif-item:hover {
+    background: rgba(255, 184, 0, 0.08);
+    color: #fff;
+}
+.cf-notif-item--unread {
+    background: rgba(255, 184, 0, 0.06);
+    border-left-color: #FFB800;
+}
+.cf-notif-item--unread:hover {
+    background: rgba(255, 184, 0, 0.1);
+}
+
+.cf-notif-item-title {
+    font-family: 'Mulish', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    color: #fff;
+    line-height: 1.3;
+}
+
+.cf-notif-item-msg {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: #888;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.cf-notif-item-time {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: #666;
+}
+
+.cf-notif-empty {
+    margin: 0;
+    padding: 24px 16px;
+    text-align: center;
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: #666;
+}
+
+@media (max-width: 600px) {
+    .cf-notif-bell {
+        z-index: 10000;
+        overflow: visible;
+    }
+    .cf-notif-bell-btn {
+        position: relative;
+        z-index: 10001;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+    }
+    .cf-notif-dropdown {
+        position: fixed;
+        top: 56px;
+        right: 12px;
+        width: min(320px, calc(100vw - 24px));
+        z-index: 10002;
+    }
 }

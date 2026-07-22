@@ -44,6 +44,26 @@ class CF_User_Menu {
         $display_name = $user->display_name;
         $profile_url  = home_url( '/cf-profile' );
         ?>
+        <div class="cf-notif-bell" id="cf-notif-bell">
+            <button class="cf-notif-bell-btn" id="cf-notif-bell-btn" aria-expanded="false" aria-label="<?php esc_attr_e( 'Notifications', 'cf-auth' ); ?>">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+                <span class="cf-notif-badge" id="cf-notif-badge" style="display:none">0</span>
+            </button>
+
+            <div class="cf-notif-dropdown" id="cf-notif-dropdown" role="menu">
+                <div class="cf-notif-dropdown-header">
+                    <span><?php _e( 'Notifications', 'cf-auth' ); ?></span>
+                    <button type="button" class="cf-notif-mark-all" id="cf-notif-mark-all"><?php _e( 'Mark all read', 'cf-auth' ); ?></button>
+                </div>
+                <div class="cf-notif-list" id="cf-notif-list">
+                    <p class="cf-muted cf-notif-empty"><?php _e( 'Loading...', 'cf-auth' ); ?></p>
+                </div>
+            </div>
+        </div>
+
         <div class="cf-user-menu" id="cf-user-menu">
 
             <!-- Trigger Button -->
