@@ -18,6 +18,7 @@ class CF_Admin {
         add_action( 'wp_ajax_cf_admin_resend_verify', [ $this, 'ajax_resend' ] );
         add_action( 'wp_ajax_cf_admin_get_user',      [ $this, 'ajax_get_user' ] );
         add_action( 'wp_ajax_cf_admin_update_user',   [ $this, 'ajax_update_user' ] );
+        add_action( 'wp_ajax_cf_admin_get_xfinity_stats', [ $this, 'ajax_get_xfinity_stats' ] );
         add_action( 'wp_ajax_cf_save_settings',       [ $this, 'ajax_save_settings' ] );
         add_action( 'wp_ajax_cf_toggle_donation_wall', [ $this, 'ajax_toggle_donation_wall' ] );
     }
@@ -380,6 +381,7 @@ class CF_Admin {
                         <td class="cf-tbl-date"><?php echo date_i18n(get_option('date_format'),strtotime($u->user_registered)); ?></td>
                         <td>
                             <div class="cf-action-btns">
+                                <button class="cf-action-btn cf-xfinity-stats" data-id="<?php echo $u->ID; ?>" title="Xfinity stats">💎</button>
                                 <button class="cf-action-btn cf-edit-user" data-id="<?php echo $u->ID; ?>" title="Edit">✏️</button>
                                 <?php if($u_status==='suspended'): ?>
                                 <button class="cf-action-btn cf-suspend-user" data-id="<?php echo $u->ID; ?>" data-action="activate" title="Activate">▶️</button>
@@ -448,6 +450,49 @@ class CF_Admin {
                             <button type="button" class="button cf-modal-close">Cancel</button>
                         </div>
                     </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Xfinity Stats Modal -->
+        <div id="cf-xfinity-stats-modal" class="cf-modal" style="display:none">
+            <div class="cf-modal-backdrop"></div>
+            <div class="cf-modal-box">
+                <div class="cf-modal-head">
+                    <h3>Xfinity Stats — <span id="cf-xstats-name"></span></h3>
+                    <button class="cf-modal-close">✕</button>
+                </div>
+                <div class="cf-modal-body">
+                    <div id="cf-xstats-loading" style="text-align:center;padding:40px;color:#888">Loading...</div>
+                    <div id="cf-xstats-content" style="display:none">
+                        <div class="cf-xstats-summary">
+                            <div class="cf-xstats-metric">
+                                <span class="cf-xstats-num" id="cf-xstats-balance">0</span>
+                                <span class="cf-xstats-lbl">Current Balance</span>
+                            </div>
+                            <div class="cf-xstats-metric">
+                                <span class="cf-xstats-num" id="cf-xstats-total">0</span>
+                                <span class="cf-xstats-lbl">Total Earned</span>
+                            </div>
+                            <div class="cf-xstats-metric">
+                                <span class="cf-xstats-num" id="cf-xstats-mins">0</span>
+                                <span class="cf-xstats-lbl">Minutes Listened</span>
+                            </div>
+                        </div>
+                        <div class="cf-xstats-referrals">
+                            <h4>Referrals</h4>
+                            <p>
+                                <span id="cf-xstats-ref-total">0</span> total ·
+                                <span id="cf-xstats-ref-confirmed">0</span> confirmed ·
+                                <span id="cf-xstats-ref-pending">0</span> pending
+                                (+<span id="cf-xstats-ref-xfinity">0</span> Xfinity earned from referrals)
+                            </p>
+                        </div>
+                        <div class="cf-xstats-recent">
+                            <h4>Last 7 Days</h4>
+                            <div id="cf-xstats-recent-list"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1032,6 +1077,58 @@ class CF_Admin {
             'avatar'       => CF_Profile::get_avatar_url($uid),
             'joined'       => date_i18n(get_option('date_format'), strtotime($user->user_registered)),
         ]);
+    }
+
+    public function ajax_get_xfinity_stats() {
+        check_ajax_referer( 'cf_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) wp_send_json_error();
+
+        $uid  = absint( $_POST['user_id'] ?? 0 );
+        $user = get_userdata( $uid );
+        if ( ! $user ) wp_send_json_error( [ 'message' => 'User not found.' ] );
+
+        global $wpdb;
+        $ledger = CF_Xfinity::ledger_table();
+
+        // All-time totals from the ledger.
+        $totals = $wpdb->get_row( $wpdb->prepare(
+            "SELECT
+                COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS total_earned,
+                COALESCE(SUM(CASE WHEN source = 'listening' AND amount > 0 THEN amount ELSE 0 END), 0) AS total_listening_xfinity,
+                COALESCE(SUM(CASE WHEN source IN ('referral_referrer','referral_new_user') AND amount > 0 THEN amount ELSE 0 END), 0) AS total_referral_xfinity
+             FROM {$ledger}
+             WHERE user_id = %d",
+            $uid
+        ) );
+
+        $rate = (float) CF_Xfinity::LISTENING_RATE_PER_MINUTE ?: 0.1;
+        $listening_mins_total = $rate > 0 ? (int) round( ( (float) $totals->total_listening_xfinity ) / $rate ) : 0;
+
+        // Referral counts (as referrer) — column is referrer_user_id.
+        $ref_table = CF_Referral::referrals_table();
+        $ref_counts = $wpdb->get_row( $wpdb->prepare(
+            "SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed,
+                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending
+             FROM {$ref_table}
+             WHERE referrer_user_id = %d",
+            $uid
+        ) );
+
+        // Last 7 days, day-grouped (same method as front-end Rewards tab).
+        $recent = CF_Xfinity::get_instance()->get_daily_transaction_summary( $uid, 1, 7 );
+
+        wp_send_json_success( [
+            'balance'                => CF_Xfinity::get_instance()->get_balance( $uid ),
+            'total_earned'           => round( (float) $totals->total_earned, 2 ),
+            'listening_mins_total'   => $listening_mins_total,
+            'referral_xfinity_total' => round( (float) $totals->total_referral_xfinity, 2 ),
+            'referral_total'         => (int) ( $ref_counts->total ?? 0 ),
+            'referral_confirmed'     => (int) ( $ref_counts->confirmed ?? 0 ),
+            'referral_pending'       => (int) ( $ref_counts->pending ?? 0 ),
+            'recent_days'            => $recent['days'],
+        ] );
     }
 
     public function ajax_update_user() {

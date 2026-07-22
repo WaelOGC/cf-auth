@@ -100,12 +100,50 @@
         });
     });
 
-    // Close modal
+    // ── Xfinity Stats Modal ───────────────────────────
+    $(document).on('click', '.cf-xfinity-stats', function () {
+        const uid = $(this).data('id');
+        const name = $(this).closest('tr').find('.cf-tbl-name').text().trim();
+        $('#cf-xstats-name').text(name);
+        $('#cf-xfinity-stats-modal').show();
+        $('#cf-xstats-content').hide();
+        $('#cf-xstats-loading').show().text('Loading...');
+
+        adminPost('cf_admin_get_xfinity_stats', { user_id: uid }, function (d) {
+            $('#cf-xstats-loading').hide();
+            $('#cf-xstats-balance').text(Number(d.balance).toFixed(1));
+            $('#cf-xstats-total').text(Number(d.total_earned).toFixed(1));
+            $('#cf-xstats-mins').text(d.listening_mins_total);
+            $('#cf-xstats-ref-total').text(d.referral_total);
+            $('#cf-xstats-ref-confirmed').text(d.referral_confirmed);
+            $('#cf-xstats-ref-pending').text(d.referral_pending);
+            $('#cf-xstats-ref-xfinity').text(Number(d.referral_xfinity_total).toFixed(1));
+
+            const $list = $('#cf-xstats-recent-list');
+            if (!d.recent_days || !d.recent_days.length) {
+                $list.html('<p style="color:#888">No activity in the last 7 days.</p>');
+            } else {
+                let h = '';
+                d.recent_days.forEach(function (day) {
+                    h += '<div class="cf-xstats-day-row">' +
+                            '<span>' + day.date_label + '</span>' +
+                            '<span>' + day.listening_mins + ' min → +' + Number(day.xfinity_earned).toFixed(1) + ' Xfinity</span>' +
+                         '</div>';
+                });
+                $list.html(h);
+            }
+            $('#cf-xstats-content').show();
+        }, function (d) {
+            $('#cf-xstats-loading').text(d.message || 'Failed to load stats.');
+        });
+    });
+
+    // Close modal (any visible .cf-modal)
     $(document).on('click', '.cf-modal-close, .cf-modal-backdrop', function() {
-        $('#cf-edit-modal').hide();
+        $('.cf-modal:visible').hide();
         $('#cf-edit-msg').hide();
     });
-    $(document).on('keydown', e => { if(e.key==='Escape') $('#cf-edit-modal').hide(); });
+    $(document).on('keydown', e => { if(e.key==='Escape') $('.cf-modal:visible').hide(); });
 
     // ── Settings form ─────────────────────────────────
     $('#cf-settings-form').on('submit', function(e) {
