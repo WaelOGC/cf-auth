@@ -899,6 +899,67 @@ class CF_Admin {
 
     // ── Activity Log ──────────────────────────────────────────────────────────
     public function page_activity() {
+        $view = in_array( $_GET['view'] ?? 'events', [ 'events', 'sessions' ], true ) ? $_GET['view'] : 'events';
+
+        if ( $view === 'sessions' ) {
+            $sessions = CF_Engagement_Tracker::get_active_sessions_today();
+            $live_now = count( array_filter( $sessions, fn( $s ) => $s['is_currently_active'] ) );
+            ?>
+            <div class="cf-admin-wrap">
+                <div class="cf-subtabs">
+                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=cf-auth-activity&view=events' ) ); ?>"
+                       class="cf-subtab">Event Log</a>
+                    <a href="<?php echo esc_url( admin_url( 'admin.php?page=cf-auth-activity&view=sessions' ) ); ?>"
+                       class="cf-subtab active">Active Sessions Today</a>
+                </div>
+
+                <div id="cf-activity-tab-sessions">
+                    <div class="cf-admin-header" style="margin-top:0">
+                        <h1>🟢 Active Sessions Today <span><?php echo count( $sessions ); ?> members · <?php echo (int) $live_now; ?> live now</span></h1>
+                    </div>
+                    <div class="cf-card cf-card-flush">
+                        <table class="cf-table">
+                            <thead>
+                                <tr>
+                                    <th>Member</th>
+                                    <th>Status</th>
+                                    <th>Sessions Today</th>
+                                    <th>Minutes Today</th>
+                                    <th>Xfinity Today</th>
+                                    <th>Last Activity</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            <?php if ( empty( $sessions ) ) : ?>
+                            <tr><td colspan="6" class="cf-empty">No listening activity yet today.</td></tr>
+                            <?php else : foreach ( $sessions as $s ) : ?>
+                            <tr>
+                                <td>
+                                    <div class="cf-tbl-name"><?php echo esc_html( $s['display_name'] ); ?></div>
+                                    <div class="cf-tbl-email"><?php echo esc_html( $s['email'] ); ?></div>
+                                </td>
+                                <td>
+                                    <?php if ( $s['is_currently_active'] ) : ?>
+                                    <span class="cf-badge cf-badge-success">🟢 Live now</span>
+                                    <?php else : ?>
+                                    <span class="cf-badge cf-badge-neutral">Idle</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td><?php echo (int) $s['sessions_count']; ?></td>
+                                <td><?php echo (int) $s['total_minutes']; ?></td>
+                                <td><?php echo esc_html( number_format( $s['xfinity_today'], 2 ) ); ?></td>
+                                <td class="cf-tbl-date"><?php echo esc_html( human_time_diff( strtotime( $s['last_seen'] ), current_time( 'timestamp' ) ) . ' ago' ); ?></td>
+                            </tr>
+                            <?php endforeach; endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <?php
+            return;
+        }
+
         $event_type = sanitize_key( $_GET['event_type'] ?? '' );
         $date_from  = sanitize_text_field( $_GET['date_from'] ?? '' );
         $date_to    = sanitize_text_field( $_GET['date_to'] ?? '' );
@@ -928,92 +989,102 @@ class CF_Admin {
         ];
         ?>
         <div class="cf-admin-wrap">
-            <div class="cf-admin-header">
-                <h1>📋 Activity Log <span><?php echo (int) $total; ?> entries</span></h1>
+            <div class="cf-subtabs">
+                <a href="<?php echo esc_url( admin_url( 'admin.php?page=cf-auth-activity&view=events' ) ); ?>"
+                   class="cf-subtab active">Event Log</a>
+                <a href="<?php echo esc_url( admin_url( 'admin.php?page=cf-auth-activity&view=sessions' ) ); ?>"
+                   class="cf-subtab">Active Sessions Today</a>
             </div>
 
-            <form method="get" class="cf-filters">
-                <input type="hidden" name="page" value="cf-auth-activity">
-                <div class="cf-filter-group">
-                    <select name="event_type">
-                        <?php foreach ( $event_types as $value => $label ) : ?>
-                        <option value="<?php echo esc_attr( $value ); ?>" <?php selected( $event_type, $value ); ?>><?php echo esc_html( $label ); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                    <input type="date" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" placeholder="From">
-                    <input type="date" name="date_to" value="<?php echo esc_attr( $date_to ); ?>" placeholder="To">
-                    <input type="text" name="s" value="<?php echo esc_attr( $search ); ?>" placeholder="Search email or name...">
-                    <button type="submit" class="button">Filter</button>
-                    <?php if ( $event_type || $date_from || $date_to || $search ) : ?>
-                    <a href="<?php echo admin_url( 'admin.php?page=cf-auth-activity' ); ?>" class="button">Clear</a>
+            <div id="cf-activity-tab-events">
+                <div class="cf-admin-header" style="margin-top:0">
+                    <h1>📋 Activity Log <span><?php echo (int) $total; ?> entries</span></h1>
+                </div>
+
+                <form method="get" class="cf-filters">
+                    <input type="hidden" name="page" value="cf-auth-activity">
+                    <input type="hidden" name="view" value="events">
+                    <div class="cf-filter-group">
+                        <select name="event_type">
+                            <?php foreach ( $event_types as $value => $label ) : ?>
+                            <option value="<?php echo esc_attr( $value ); ?>" <?php selected( $event_type, $value ); ?>><?php echo esc_html( $label ); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <input type="date" name="date_from" value="<?php echo esc_attr( $date_from ); ?>" placeholder="From">
+                        <input type="date" name="date_to" value="<?php echo esc_attr( $date_to ); ?>" placeholder="To">
+                        <input type="text" name="s" value="<?php echo esc_attr( $search ); ?>" placeholder="Search email or name...">
+                        <button type="submit" class="button">Filter</button>
+                        <?php if ( $event_type || $date_from || $date_to || $search ) : ?>
+                        <a href="<?php echo esc_url( admin_url( 'admin.php?page=cf-auth-activity&view=events' ) ); ?>" class="button">Clear</a>
+                        <?php endif; ?>
+                    </div>
+                </form>
+
+                <div class="cf-card cf-card-flush">
+                    <table class="cf-table">
+                        <thead>
+                            <tr>
+                                <th>Event</th>
+                                <th>Member / Email</th>
+                                <th>Provider</th>
+                                <th>IP Address</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php if ( empty( $rows ) ) : ?>
+                        <tr><td colspan="5" class="cf-empty">No activity found.</td></tr>
+                        <?php else : foreach ( $rows as $row ) :
+                            $badge_class = CF_Activity_Log::event_badge_class( $row->event_type, $row->meta );
+                            $member_label = $row->display_name
+                                ? esc_html( $row->display_name )
+                                : ( $row->email ? esc_html( $row->email ) : '—' );
+                            $email_sub = ( $row->display_name && $row->email )
+                                ? '<div class="cf-tbl-email">' . esc_html( $row->email ) . '</div>'
+                                : '';
+                        ?>
+                        <tr>
+                            <td>
+                                <span class="<?php echo esc_attr( $badge_class ); ?>">
+                                    <?php echo esc_html( CF_Activity_Log::event_label( $row->event_type ) ); ?>
+                                </span>
+                            </td>
+                            <td>
+                                <div class="cf-tbl-name"><?php echo $member_label; ?></div>
+                                <?php echo $email_sub; ?>
+                            </td>
+                            <td>
+                                <?php if ( $row->provider ) : ?>
+                                <span class="cf-pill"><?php echo esc_html( ucfirst( $row->provider ) ); ?></span>
+                                <?php else : ?>
+                                <span class="cf-tbl-date">—</span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="cf-tbl-date"><?php echo esc_html( $row->ip_address ?: '—' ); ?></td>
+                            <td class="cf-tbl-date"><?php echo esc_html( date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $row->created_at ) ) ); ?></td>
+                        </tr>
+                        <?php endforeach; endif; ?>
+                        </tbody>
+                    </table>
+
+                    <?php if ( $pages > 1 ) : ?>
+                    <div class="cf-pagination">
+                        <?php for ( $i = 1; $i <= $pages; $i++ ) :
+                            $url = add_query_arg( array_merge(
+                                [ 'page' => 'cf-auth-activity', 'view' => 'events', 'paged' => $i ],
+                                array_filter( [
+                                    'event_type' => $event_type,
+                                    'date_from'  => $date_from,
+                                    'date_to'    => $date_to,
+                                    's'          => $search,
+                                ] )
+                            ), admin_url( 'admin.php' ) );
+                        ?>
+                        <a href="<?php echo esc_url( $url ); ?>" class="cf-page-btn <?php echo $i === $paged ? 'active' : ''; ?>"><?php echo (int) $i; ?></a>
+                        <?php endfor; ?>
+                    </div>
                     <?php endif; ?>
                 </div>
-            </form>
-
-            <div class="cf-card cf-card-flush">
-                <table class="cf-table">
-                    <thead>
-                        <tr>
-                            <th>Event</th>
-                            <th>Member / Email</th>
-                            <th>Provider</th>
-                            <th>IP Address</th>
-                            <th>Date</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    <?php if ( empty( $rows ) ) : ?>
-                    <tr><td colspan="5" class="cf-empty">No activity found.</td></tr>
-                    <?php else : foreach ( $rows as $row ) :
-                        $badge_class = CF_Activity_Log::event_badge_class( $row->event_type, $row->meta );
-                        $member_label = $row->display_name
-                            ? esc_html( $row->display_name )
-                            : ( $row->email ? esc_html( $row->email ) : '—' );
-                        $email_sub = ( $row->display_name && $row->email )
-                            ? '<div class="cf-tbl-email">' . esc_html( $row->email ) . '</div>'
-                            : '';
-                    ?>
-                    <tr>
-                        <td>
-                            <span class="<?php echo esc_attr( $badge_class ); ?>">
-                                <?php echo esc_html( CF_Activity_Log::event_label( $row->event_type ) ); ?>
-                            </span>
-                        </td>
-                        <td>
-                            <div class="cf-tbl-name"><?php echo $member_label; ?></div>
-                            <?php echo $email_sub; ?>
-                        </td>
-                        <td>
-                            <?php if ( $row->provider ) : ?>
-                            <span class="cf-pill"><?php echo esc_html( ucfirst( $row->provider ) ); ?></span>
-                            <?php else : ?>
-                            <span class="cf-tbl-date">—</span>
-                            <?php endif; ?>
-                        </td>
-                        <td class="cf-tbl-date"><?php echo esc_html( $row->ip_address ?: '—' ); ?></td>
-                        <td class="cf-tbl-date"><?php echo esc_html( date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $row->created_at ) ) ); ?></td>
-                    </tr>
-                    <?php endforeach; endif; ?>
-                    </tbody>
-                </table>
-
-                <?php if ( $pages > 1 ) : ?>
-                <div class="cf-pagination">
-                    <?php for ( $i = 1; $i <= $pages; $i++ ) :
-                        $url = add_query_arg( array_merge(
-                            [ 'page' => 'cf-auth-activity', 'paged' => $i ],
-                            array_filter( [
-                                'event_type' => $event_type,
-                                'date_from'  => $date_from,
-                                'date_to'    => $date_to,
-                                's'          => $search,
-                            ] )
-                        ), admin_url( 'admin.php' ) );
-                    ?>
-                    <a href="<?php echo esc_url( $url ); ?>" class="cf-page-btn <?php echo $i === $paged ? 'active' : ''; ?>"><?php echo (int) $i; ?></a>
-                    <?php endfor; ?>
-                </div>
-                <?php endif; ?>
             </div>
         </div>
         <?php

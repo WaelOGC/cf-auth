@@ -36,6 +36,55 @@ class CF_Engagement_Tracker {
     }
 
     /**
+     * Per-user listening summary for "today" (site timezone), newest activity first.
+     *
+     * @return array<int, array{user_id:int, display_name:string, email:string,
+     *   sessions_count:int, total_minutes:int, xfinity_today:float,
+     *   last_activity_type:string, last_seen:string, is_currently_active:bool}>
+     */
+    public static function get_active_sessions_today() {
+        global $wpdb;
+
+        $table       = self::sessions_table();
+        $today_start = current_time( 'Y-m-d' ) . ' 00:00:00';
+        // ~5 min cutoff ≈ several PING_MIN_INTERVAL (55s) windows — survives a couple missed pings.
+        $cutoff      = date( 'Y-m-d H:i:s', current_time( 'timestamp' ) - 5 * MINUTE_IN_SECONDS );
+
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT s.user_id,
+                    COUNT(*) AS sessions_count,
+                    SUM(s.duration_seconds) AS total_seconds,
+                    SUM(s.xfinity_earned) AS xfinity_today,
+                    MAX(s.created_at) AS last_seen,
+                    SUBSTRING_INDEX(GROUP_CONCAT(s.activity_type ORDER BY s.created_at DESC), ',', 1) AS last_activity_type
+             FROM {$table} s
+             WHERE s.created_at >= %s
+               AND s.is_valid = 1
+             GROUP BY s.user_id
+             ORDER BY last_seen DESC",
+            $today_start
+        ) );
+
+        $out = [];
+        foreach ( (array) $rows as $row ) {
+            $user = get_userdata( (int) $row->user_id );
+            $out[] = [
+                'user_id'             => (int) $row->user_id,
+                'display_name'        => $user ? $user->display_name : __( '(deleted user)', 'cf-auth' ),
+                'email'               => $user ? $user->user_email : '',
+                'sessions_count'      => (int) $row->sessions_count,
+                'total_minutes'       => (int) round( (int) $row->total_seconds / 60 ),
+                'xfinity_today'       => round( (float) $row->xfinity_today, 2 ),
+                'last_activity_type'  => $row->last_activity_type,
+                'last_seen'           => $row->last_seen,
+                'is_currently_active' => $row->last_seen >= $cutoff,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * Enqueue tracker JS only for logged-in users on pages where listening can occur.
      */
     public function enqueue_scripts() {
