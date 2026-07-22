@@ -28,7 +28,7 @@ class CF_Xfinity {
     }
 
     /**
-     * Profile Rewards tab: referral stats + recent ledger for the current user.
+     * Profile Rewards tab: referral stats + day-grouped ledger summary.
      */
     public function handle_get_xfinity_summary() {
         check_ajax_referer( 'cf_auth_nonce', 'nonce' );
@@ -66,21 +66,98 @@ class CF_Xfinity {
             }
         }
 
-        $transactions = [];
-        foreach ( $this->get_transaction_history( $user_id, 20 ) as $row ) {
-            $transactions[] = [
-                'id'           => (int) $row->id,
-                'amount'       => round( (float) $row->amount, 2 ),
-                'source'       => $row->source,
-                'source_label' => $this->get_source_label( $row->source ),
-                'date'         => date_i18n( get_option( 'date_format' ), strtotime( $row->created_at ) ),
-            ];
+        $page     = max( 1, absint( $_POST['page'] ?? 1 ) );
+        $per_page = absint( $_POST['per_page'] ?? 10 );
+        if ( ! in_array( $per_page, [ 10, 25, 50, 100 ], true ) ) {
+            $per_page = 10;
         }
+
+        $summary = $this->get_daily_transaction_summary( $user_id, $page, $per_page );
 
         wp_send_json_success( [
             'referral_stats' => $stats,
-            'transactions'   => $transactions,
+            'daily_summary'  => $summary['days'],
+            'total_days'     => $summary['total_days'],
+            'page'           => $page,
+            'per_page'       => $per_page,
         ] );
+    }
+
+    /**
+     * Day-grouped Xfinity ledger summary (newest first), paginated by calendar day.
+     *
+     * @param int $user_id
+     * @param int $page
+     * @param int $per_page
+     * @return array{days: array<int, array>, total_days: int}
+     */
+    public function get_daily_transaction_summary( $user_id, $page = 1, $per_page = 10 ) {
+        global $wpdb;
+
+        $user_id  = absint( $user_id );
+        $page     = max( 1, absint( $page ) );
+        $per_page = max( 1, absint( $per_page ) );
+        $offset   = ( $page - 1 ) * $per_page;
+
+        if ( ! $user_id ) {
+            return [ 'days' => [], 'total_days' => 0 ];
+        }
+
+        $table = self::ledger_table();
+        $rate  = (float) self::LISTENING_RATE_PER_MINUTE;
+        if ( $rate <= 0 ) {
+            $rate = 0.1;
+        }
+
+        // Only listening + referral earns feed the daily summary cards.
+        $total_days = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(DISTINCT DATE(created_at))
+             FROM {$table}
+             WHERE user_id = %d
+               AND amount > 0
+               AND source IN ('listening', 'referral_referrer', 'referral_new_user')",
+            $user_id
+        ) );
+
+        $day_rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT DATE(created_at) AS day_date,
+                    COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS xfinity_earned,
+                    COALESCE(SUM(CASE WHEN source = 'listening' AND amount > 0 THEN amount ELSE 0 END), 0) AS listening_xfinity,
+                    COALESCE(SUM(CASE WHEN source IN ('referral_referrer', 'referral_new_user') AND amount > 0 THEN amount ELSE 0 END), 0) AS referral_xfinity,
+                    COALESCE(SUM(CASE WHEN source IN ('referral_referrer', 'referral_new_user') AND amount > 0 THEN 1 ELSE 0 END), 0) AS referral_count
+             FROM {$table}
+             WHERE user_id = %d
+               AND amount > 0
+               AND source IN ('listening', 'referral_referrer', 'referral_new_user')
+             GROUP BY DATE(created_at)
+             ORDER BY day_date DESC
+             LIMIT %d OFFSET %d",
+            $user_id,
+            $per_page,
+            $offset
+        ) );
+
+        $days = [];
+        foreach ( (array) $day_rows as $row ) {
+            $listening_xfinity = (float) $row->listening_xfinity;
+            $referral_xfinity  = (float) $row->referral_xfinity;
+            $xfinity_earned    = round( (float) $row->xfinity_earned, 2 );
+            $listening_mins    = (int) round( $listening_xfinity / $rate );
+
+            $days[] = [
+                'date_label'       => date_i18n( get_option( 'date_format' ), strtotime( $row->day_date . ' 12:00:00' ) ),
+                'listening_mins'   => $listening_mins,
+                'listening_xfinity'=> round( $listening_xfinity, 2 ),
+                'xfinity_earned'   => $xfinity_earned,
+                'referral_count'   => (int) $row->referral_count,
+                'referral_xfinity' => round( $referral_xfinity, 2 ),
+            ];
+        }
+
+        return [
+            'days'       => $days,
+            'total_days' => $total_days,
+        ];
     }
 
     /**

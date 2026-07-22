@@ -599,6 +599,89 @@ body.cf-modal-open { overflow: hidden; }
 .cf-history-track { color: var(--cf-text); }
 .cf-history-time { color: var(--cf-muted); }
 
+/* Shared profile-tab pagination */
+.cf-pagination-wrap {
+  margin-top: 16px;
+}
+.cf-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid var(--cf-border);
+  font-size: 12px;
+  color: var(--cf-muted);
+}
+.cf-pagination-size select,
+.cf-pagination-goto-input {
+  background: var(--cf-card-2);
+  border: 1px solid var(--cf-border);
+  color: var(--cf-text);
+  border-radius: var(--cf-radius-sm);
+  padding: 4px 8px;
+  font-size: 12px;
+  margin-left: 6px;
+}
+.cf-pagination-goto-input {
+  width: 56px;
+}
+.cf-pagination-pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.cf-pagination-page {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--cf-border);
+  background: transparent;
+  color: var(--cf-muted);
+  border-radius: var(--cf-radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+.cf-pagination-page:hover {
+  border-color: var(--cf-gold);
+  color: var(--cf-text);
+}
+.cf-pagination-page.is-active {
+  background: var(--cf-gold);
+  border-color: var(--cf-gold);
+  color: #000;
+  font-weight: 700;
+  cursor: default;
+}
+.cf-pagination-next {
+  padding: 0 12px;
+}
+.cf-pagination-ellipsis {
+  padding: 0 4px;
+  color: var(--cf-muted-2);
+}
+.cf-pagination-goto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 640px) {
+  .cf-pagination {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .cf-pagination-pages {
+    justify-content: center;
+  }
+}
+
 /* Favorites & playlists — compact row list */
 .cf-row-list { display: flex; flex-direction: column; }
 .cf-row-item {

@@ -115,6 +115,23 @@ class CF_Playlists {
             ];
         }
 
+        $page     = absint( $_POST['page'] ?? 0 );
+        $per_page = absint( $_POST['per_page'] ?? 0 );
+
+        // Profile tab pagination — only when page/per_page are provided (modal "add to playlist" still gets the full list).
+        if ( $page > 0 && $per_page > 0 && ! $filter ) {
+            if ( ! in_array( $per_page, [ 10, 25, 50, 100 ], true ) ) {
+                $per_page = 10;
+            }
+            $result = self::get_user_playlists_paginated( get_current_user_id(), $page, $per_page );
+            wp_send_json_success( [
+                'playlists' => $result['playlists'],
+                'total'     => $result['total'],
+                'page'      => $page,
+                'per_page'  => $per_page,
+            ] );
+        }
+
         wp_send_json_success( [
             'playlists' => self::get_user_playlists( get_current_user_id(), $filter ),
         ] );
@@ -365,6 +382,56 @@ class CF_Playlists {
         }
 
         return $playlists;
+    }
+
+    /**
+     * Paginated user playlists for the profile Playlists tab.
+     *
+     * @param int $user_id
+     * @param int $page
+     * @param int $per_page
+     * @return array{playlists: array, total: int}
+     */
+    public static function get_user_playlists_paginated( int $user_id, int $page = 1, int $per_page = 10 ): array {
+        global $wpdb;
+
+        $user_id  = absint( $user_id );
+        $page     = max( 1, absint( $page ) );
+        $per_page = max( 1, absint( $per_page ) );
+        $offset   = ( $page - 1 ) * $per_page;
+
+        $table       = $wpdb->prefix . 'cf_playlists';
+        $items_table = $wpdb->prefix . 'cf_playlist_items';
+
+        $total = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE user_id = %d",
+            $user_id
+        ) );
+
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT p.*, COUNT(i.id) AS item_count
+             FROM {$table} p
+             LEFT JOIN {$items_table} i ON i.playlist_id = p.id
+             WHERE p.user_id = %d
+             GROUP BY p.id
+             ORDER BY p.created_at DESC
+             LIMIT %d OFFSET %d",
+            $user_id,
+            $per_page,
+            $offset
+        ) );
+
+        $playlists = [];
+        foreach ( (array) $rows as $row ) {
+            $formatted = self::format_playlist_row( $row );
+            $formatted['cover'] = self::get_playlist_cover( (int) $row->id );
+            $playlists[] = $formatted;
+        }
+
+        return [
+            'playlists' => $playlists,
+            'total'     => $total,
+        ];
     }
 
     // ── Static: Resolve playlist items to post data ───────────────────────────

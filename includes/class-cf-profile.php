@@ -16,6 +16,7 @@ class CF_Profile {
         add_action( 'wp_ajax_cf_toggle_favorite',      [ $this, 'handle_toggle_favorite' ] );
         add_action( 'wp_ajax_cf_get_favorites',        [ $this, 'handle_get_favorites' ] );
         add_action( 'wp_ajax_nopriv_cf_get_favorites', [ $this, 'handle_get_favorites' ] );
+        add_action( 'wp_ajax_cf_get_favorites_page',   [ $this, 'handle_get_favorites_page' ] );
         add_action( 'wp_ajax_cf_log_listening',        [ $this, 'handle_log_listening' ] );
         add_action( 'wp_ajax_cf_get_listening_history',[ $this, 'handle_get_history' ] );
         add_action( 'wp_ajax_cf_refresh_nonces',       [ $this, 'handle_refresh_nonces' ] );
@@ -244,27 +245,50 @@ class CF_Profile {
     // ── Get Listening History ─────────────────────────────────────────────────
     public function handle_get_history() {
         check_ajax_referer( 'cf_auth_nonce', 'nonce' );
-        if ( ! is_user_logged_in() ) wp_send_json_error();
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error();
+        }
 
         global $wpdb;
-        $user_id = get_current_user_id();
-        $limit   = absint( $_POST['limit'] ?? 20 );
+        $user_id  = get_current_user_id();
+        $page     = max( 1, absint( $_POST['page'] ?? 1 ) );
+        $per_page = absint( $_POST['per_page'] ?? $_POST['limit'] ?? 10 );
+        if ( ! in_array( $per_page, [ 10, 25, 50, 100 ], true ) ) {
+            $per_page = 10;
+        }
+        $offset = ( $page - 1 ) * $per_page;
+
+        $history_table = $wpdb->prefix . 'cf_listening_history';
+        $posts_table   = $wpdb->posts;
+
+        $total = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*)
+             FROM {$history_table} h
+             INNER JOIN {$posts_table} p ON p.ID = h.track_id
+             WHERE h.user_id = %d
+               AND p.post_type = 'tracks'
+               AND p.post_status = 'publish'",
+            $user_id
+        ) );
 
         $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT track_id, listened_at FROM {$wpdb->prefix}cf_listening_history
-             WHERE user_id = %d ORDER BY listened_at DESC LIMIT %d",
+            "SELECT h.track_id, h.listened_at
+             FROM {$history_table} h
+             INNER JOIN {$posts_table} p ON p.ID = h.track_id
+             WHERE h.user_id = %d
+               AND p.post_type = 'tracks'
+               AND p.post_status = 'publish'
+             ORDER BY h.listened_at DESC
+             LIMIT %d OFFSET %d",
             $user_id,
-            $limit * 3
+            $per_page,
+            $offset
         ) );
 
         $history = [];
-        foreach ( $rows as $row ) {
-            if ( count( $history ) >= $limit ) {
-                break;
-            }
-
+        foreach ( (array) $rows as $row ) {
             $post = get_post( (int) $row->track_id );
-            if ( ! $post || $post->post_type !== 'tracks' || $post->post_status !== 'publish' ) {
+            if ( ! $post ) {
                 continue;
             }
 
@@ -277,7 +301,116 @@ class CF_Profile {
             ];
         }
 
-        wp_send_json_success( [ 'history' => $history ] );
+        wp_send_json_success( [
+            'history'  => $history,
+            'total'    => $total,
+            'page'     => $page,
+            'per_page' => $per_page,
+        ] );
+    }
+
+    // ── Get Favorites (paginated profile tab) ─────────────────────────────────
+    public function handle_get_favorites_page() {
+        check_ajax_referer( 'cf_auth_nonce', 'nonce' );
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => __( 'Unauthorized', 'cf-auth' ) ] );
+        }
+
+        $user_id  = get_current_user_id();
+        $page     = max( 1, absint( $_POST['page'] ?? 1 ) );
+        $per_page = absint( $_POST['per_page'] ?? 10 );
+        if ( ! in_array( $per_page, [ 10, 25, 50, 100 ], true ) ) {
+            $per_page = 10;
+        }
+
+        $tracks = get_user_meta( $user_id, 'cf_favorite_tracks', true );
+        $albums = get_user_meta( $user_id, 'cf_favorite_albums', true );
+        $posts  = get_user_meta( $user_id, 'cf_favorite_posts', true );
+        if ( ! is_array( $tracks ) ) {
+            $tracks = [];
+        }
+        if ( ! is_array( $albums ) ) {
+            $albums = [];
+        }
+        if ( ! is_array( $posts ) ) {
+            $posts = [];
+        }
+
+        // Combined list: tracks → albums → articles (stable order within each group = meta order).
+        $combined = [];
+        foreach ( array_map( 'absint', $tracks ) as $id ) {
+            if ( $id ) {
+                $combined[] = [ 'id' => $id, 'type' => 'track', 'post_type' => 'tracks' ];
+            }
+        }
+        foreach ( array_map( 'absint', $albums ) as $id ) {
+            if ( $id ) {
+                $combined[] = [ 'id' => $id, 'type' => 'album', 'post_type' => 'albums' ];
+            }
+        }
+        foreach ( array_map( 'absint', $posts ) as $id ) {
+            if ( $id ) {
+                $combined[] = [ 'id' => $id, 'type' => 'post', 'post_type' => 'post' ];
+            }
+        }
+
+        $items = [];
+        foreach ( $combined as $entry ) {
+            $post = get_post( $entry['id'] );
+            if ( ! $post || $post->post_type !== $entry['post_type'] || $post->post_status !== 'publish' ) {
+                continue;
+            }
+
+            $type = $entry['type'];
+            $items[] = [
+                'id'     => (int) $post->ID,
+                'type'   => $type,
+                'title'  => $post->post_title,
+                'url'    => get_permalink( $post ),
+                'cover'  => self::get_release_cover_url( $post, $type ),
+                'artist' => self::get_favorite_artist_label( $post, $type ),
+            ];
+        }
+
+        $total  = count( $items );
+        $offset = ( $page - 1 ) * $per_page;
+        $page_items = array_slice( $items, $offset, $per_page );
+
+        wp_send_json_success( [
+            'items'    => array_values( $page_items ),
+            'total'    => $total,
+            'page'     => $page,
+            'per_page' => $per_page,
+            'counts'   => [
+                'tracks' => count( array_filter( $items, static function ( $i ) { return $i['type'] === 'track'; } ) ),
+                'albums' => count( array_filter( $items, static function ( $i ) { return $i['type'] === 'album'; } ) ),
+                'posts'  => count( array_filter( $items, static function ( $i ) { return $i['type'] === 'post'; } ) ),
+            ],
+        ] );
+    }
+
+    /**
+     * Artist / author label for a favorite card.
+     *
+     * @param WP_Post $post
+     * @param string  $type track|album|post
+     * @return string
+     */
+    private static function get_favorite_artist_label( WP_Post $post, $type ) {
+        if ( $type === 'track' ) {
+            $artists = wp_get_post_terms( $post->ID, 'track_artist' );
+            if ( ! empty( $artists ) && ! is_wp_error( $artists ) ) {
+                return $artists[0]->name;
+            }
+            return 'Collective Finity';
+        }
+        if ( $type === 'post' ) {
+            return (string) get_the_author_meta( 'display_name', $post->post_author );
+        }
+        if ( function_exists( 'collective_finity_brand_name' ) ) {
+            return collective_finity_brand_name();
+        }
+        return 'Collective Finity';
     }
 
     // ── Refresh AJAX Nonces ───────────────────────────────────────────────────

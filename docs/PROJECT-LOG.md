@@ -30,7 +30,9 @@ This file tracks every feature, fix, and pending item implemented in the cf-auth
 
 ### User Profile (`class-cf-profile.php`)
 - Profile field updates, avatar upload (JPG/PNG/GIF/WEBP, 2MB max, old avatar auto-deleted on replace), favorites toggle, listening history logging/retrieval, nonce refresh, and account deletion — all via AJAX handlers guarded by `check_ajax_referer` + `is_user_logged_in`
-- **Rewards tab** on `cf_user_profile` (between Playlists and Settings): server-rendered Xfinity balance + referral link with client-side Copy; AJAX `cf_get_xfinity_summary` (in `class-cf-xfinity.php`) loads referral stats (maps `flagged_fake` → "Under review") and last 20 ledger entries with human-readable source labels; JS mirrors `loadHistory()` once-per-page-load pattern in `cf-auth.js`
+- **Rewards tab** on `cf_user_profile` (between Playlists and Settings): server-rendered Xfinity balance + referral link with client-side Copy; AJAX `cf_get_xfinity_summary` returns referral stats + **day-grouped** `daily_summary` (listening mins + referral lines per calendar day), paginated via `page`/`per_page`
+- **Favorites / History / Playlists** tabs: **server-side** pagination via distinct GET params (`cf_fav_page`/`cf_fav_per_page`, `cf_hist_page`/`cf_hist_per_page`, `cf_pl_page`/`cf_pl_per_page`) + shared `CF_Shortcodes::render_pagination()` (plain links, Show dropdown, Next, Go to page); default 10/page
+- **Rewards** tab: AJAX `daily_summary` remains client-paginated (separate from the three server-paginated tabs)
 
 ### Playlists (`class-cf-playlists.php`)
 - Users can create, rename, delete, and toggle public/private visibility on playlists; add/remove tracks or albums; fetch their own playlists (optionally filtered by whether a given item is already in them); fetch a public playlist by share token

@@ -226,6 +226,11 @@
 
     // ── Profile tabs ──────────────────────────────────
     const PROFILE_TABS = ['overview', 'favorites', 'history', 'playlists', 'rewards', 'settings'];
+    const PAGE_SIZES = [10, 25, 50, 100];
+
+    const tabPaging = {
+        rewards: { page: 1, perPage: 10, statsLoaded: false },
+    };
 
     $(document).on('click', '.cf-tab', function () {
         const tab = $(this).data('tab');
@@ -233,7 +238,6 @@
         $(this).addClass('active');
         $('.cf-tab-panel').hide();
         $('#cf-tab-' + tab).show();
-        if (tab === 'history') loadHistory();
         if (tab === 'rewards') loadRewards();
         history.replaceState(null, '', '#' + tab);
     });
@@ -256,6 +260,122 @@
     $(document).on('click', '.cf-go-settings', function () {
         $('.cf-tab[data-tab="settings"]').trigger('click');
     });
+
+    // Preserve tab hash on server-side "Go to page" forms (GET strips hash otherwise).
+    $(document).on('submit', '.cf-pagination-goto', function (e) {
+        const tab = $(this).data('cf-tab');
+        if (!tab) return;
+        e.preventDefault();
+        const $f = $(this);
+        const action = ($f.attr('action') || window.location.pathname).split('#')[0].split('?')[0];
+        const params = $f.serialize();
+        window.location.href = action + (params ? ('?' + params) : '') + '#' + tab;
+    });
+
+    // ── Shared pagination UI (Rewards AJAX tab only) ──
+    function getPaginationPages(current, total) {
+        current = Math.max(1, parseInt(current, 10) || 1);
+        total = Math.max(1, parseInt(total, 10) || 1);
+        if (total <= 9) {
+            return Array.from({ length: total }, function (_, i) { return i + 1; });
+        }
+        const pages = [];
+        if (current <= 5) {
+            for (let i = 1; i <= 8; i++) pages.push(i);
+            pages.push('…');
+            pages.push(total);
+        } else if (current >= total - 4) {
+            pages.push(1);
+            pages.push('…');
+            for (let i = total - 7; i <= total; i++) pages.push(i);
+        } else {
+            pages.push(1);
+            pages.push('…');
+            for (let i = current - 2; i <= current + 2; i++) pages.push(i);
+            pages.push('…');
+            pages.push(total);
+        }
+        return pages;
+    }
+
+    /**
+     * Render pagination controls into $container.
+     * onPageChange(page, perPage) is called when the user changes page or page size.
+     */
+    function renderPagination($container, currentPage, totalPages, perPage, onPageChange) {
+        if (!$container || !$container.length) return;
+        currentPage = Math.max(1, parseInt(currentPage, 10) || 1);
+        totalPages = Math.max(0, parseInt(totalPages, 10) || 0);
+        perPage = parseInt(perPage, 10) || 10;
+        if (PAGE_SIZES.indexOf(perPage) === -1) perPage = 10;
+
+        if (totalPages <= 0) {
+            $container.empty().hide();
+            return;
+        }
+
+        const pages = getPaginationPages(currentPage, totalPages);
+        let html = '<div class="cf-pagination" role="navigation" aria-label="Pagination">';
+        html += '<div class="cf-pagination-size"><label>Per page ';
+        html += '<select class="cf-pagination-per-page">';
+        PAGE_SIZES.forEach(function (n) {
+            html += '<option value="' + n + '"' + (n === perPage ? ' selected' : '') + '>' + n + '</option>';
+        });
+        html += '</select></label></div>';
+
+        html += '<div class="cf-pagination-pages">';
+        pages.forEach(function (p) {
+            if (p === '…') {
+                html += '<span class="cf-pagination-ellipsis" aria-hidden="true">…</span>';
+                return;
+            }
+            const active = p === currentPage ? ' is-active' : '';
+            html += '<button type="button" class="cf-pagination-page' + active + '" data-page="' + p + '"' +
+                (p === currentPage ? ' aria-current="page"' : '') + '>' + p + '</button>';
+        });
+        html += '</div>';
+
+        html += '<div class="cf-pagination-goto">' +
+            '<label>Go to <input type="number" class="cf-pagination-goto-input" min="1" max="' + totalPages + '" value="' + currentPage + '"></label>' +
+            '<button type="button" class="cf-btn cf-btn-outline-sm cf-pagination-goto-btn">Go</button>' +
+            '</div>';
+        html += '</div>';
+
+        $container.html(html).show();
+
+        $container.off('change.cfPag click.cfPag');
+        $container.on('change.cfPag', '.cf-pagination-per-page', function () {
+            const nextPer = parseInt($(this).val(), 10) || 10;
+            onPageChange(1, nextPer);
+        });
+        $container.on('click.cfPag', '.cf-pagination-page', function () {
+            const p = parseInt($(this).data('page'), 10);
+            if (!p || p === currentPage) return;
+            onPageChange(p, perPage);
+        });
+        $container.on('click.cfPag', '.cf-pagination-goto-btn', function () {
+            let p = parseInt($container.find('.cf-pagination-goto-input').val(), 10);
+            if (!p || p < 1) p = 1;
+            if (p > totalPages) p = totalPages;
+            if (p === currentPage) return;
+            onPageChange(p, perPage);
+        });
+        $container.on('keydown.cfPag', '.cf-pagination-goto-input', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                $container.find('.cf-pagination-goto-btn').trigger('click');
+            }
+        });
+    }
+
+    function ensurePaginationSlot($listParent) {
+        let $pag = $listParent.children('.cf-pagination-wrap');
+        if (!$pag.length) {
+            $pag = $('<div class="cf-pagination-wrap"></div>');
+            $listParent.append($pag);
+        }
+        return $pag;
+    }
 
     // ── Avatar upload ─────────────────────────────────
     $('#cf-avatar-input').on('change', function () {
@@ -312,75 +432,111 @@
         });
     });
 
-    // ── Listening history ─────────────────────────────
+    // ── Helpers ───────────────────────────────────────
     function escHtml(text) {
         return $('<div>').text(text || '').html();
     }
 
-    function loadHistory() {
-        const $c = $('#cf-history-container');
-        if ($c.data('loaded')) return;
-        post('cf_get_listening_history', { limit:20 }, function(d){
-            $c.data('loaded',true);
-            if (!d.history || !d.history.length) {
-                $c.html('<p class="cf-muted">No listening history yet.</p>'); return;
-            }
-            let h = '<div class="cf-history-list">';
-            d.history.forEach(i => {
-                const cover = i.cover
-                    ? `<img src="${escHtml(i.cover)}" alt="" class="cf-history-cover" width="36" height="36" loading="lazy" style="border-radius:4px;object-fit:cover;margin-right:10px;flex-shrink:0">`
-                    : '';
-                const title = `<a href="${escHtml(i.url)}" class="cf-history-track-link" style="color:inherit;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(i.title)}</a>`;
-                h += `<div class="cf-history-item"><span class="cf-history-track" style="display:flex;align-items:center;flex:1;min-width:0">${cover}${title}</span><span class="cf-history-time">${escHtml(i.listened_at)}</span></div>`;
-            });
-            $c.html(h + '</div>');
-        }, () => $c.html('<p class="cf-muted">Could not load history.</p>'));
-    }
-
-    // ── Rewards tab (Xfinity + referrals) ──────────────
-    function loadRewards() {
+    // ── Rewards tab (Xfinity + referrals) — AJAX (Favorites/History/Playlists are server-paginated) ──
+    function loadRewards(force) {
         const $stats = $('#cf-referral-stats-container');
         const $hist  = $('#cf-xfinity-history-container');
-        if ($stats.data('loaded')) return;
-        post('cf_get_xfinity_summary', {}, function(d){
-            $stats.data('loaded', true);
+        if (!$hist.length) return;
+        if ($hist.data('loading')) return;
+        if (!force && $hist.data('loaded')) return;
+
+        const state = tabPaging.rewards;
+        const needStats = !state.statsLoaded;
+
+        $hist.data('loading', true);
+        if (needStats) {
+            $stats.html('<p class="cf-muted">Loading...</p>');
+        }
+        $hist.html('<p class="cf-muted">Loading...</p>');
+
+        post('cf_get_xfinity_summary', {
+            page: state.page,
+            per_page: state.perPage,
+        }, function (d) {
+            $hist.data('loading', false);
             $hist.data('loaded', true);
 
-            const s = d.referral_stats || {};
-            $stats.html(
-                '<div class="cf-stats-bar" style="margin:0;border:none;padding:0">' +
-                    '<div class="cf-stat"><span class="cf-stat-num">' + escHtml(String(s.total || 0)) + '</span><span class="cf-stat-lbl">Total</span></div>' +
-                    '<div class="cf-stat-sep"></div>' +
-                    '<div class="cf-stat"><span class="cf-stat-num">' + escHtml(String(s.confirmed || 0)) + '</span><span class="cf-stat-lbl">Confirmed</span></div>' +
-                    '<div class="cf-stat-sep"></div>' +
-                    '<div class="cf-stat"><span class="cf-stat-num">' + escHtml(String(s.pending || 0)) + '</span><span class="cf-stat-lbl">Pending</span></div>' +
-                    '<div class="cf-stat-sep"></div>' +
-                    '<div class="cf-stat"><span class="cf-stat-num">' + escHtml(String(s.under_review || 0)) + '</span><span class="cf-stat-lbl">Under review</span></div>' +
-                '</div>'
-            );
+            if (needStats || !state.statsLoaded) {
+                state.statsLoaded = true;
+                const s = d.referral_stats || {};
+                $stats.html(
+                    '<div class="cf-stats-bar" style="margin:0;border:none;padding:0">' +
+                        '<div class="cf-stat"><span class="cf-stat-num">' + escHtml(String(s.total || 0)) + '</span><span class="cf-stat-lbl">Total</span></div>' +
+                        '<div class="cf-stat-sep"></div>' +
+                        '<div class="cf-stat"><span class="cf-stat-num">' + escHtml(String(s.confirmed || 0)) + '</span><span class="cf-stat-lbl">Confirmed</span></div>' +
+                        '<div class="cf-stat-sep"></div>' +
+                        '<div class="cf-stat"><span class="cf-stat-num">' + escHtml(String(s.pending || 0)) + '</span><span class="cf-stat-lbl">Pending</span></div>' +
+                        '<div class="cf-stat-sep"></div>' +
+                        '<div class="cf-stat"><span class="cf-stat-num">' + escHtml(String(s.under_review || 0)) + '</span><span class="cf-stat-lbl">Under review</span></div>' +
+                    '</div>'
+                );
+            }
 
-            if (!d.transactions || !d.transactions.length) {
+            const days = d.daily_summary || [];
+            const totalDays = parseInt(d.total_days, 10) || 0;
+            const totalPages = Math.max(1, Math.ceil(totalDays / state.perPage) || 1);
+            if (state.page > totalPages && totalDays > 0) {
+                state.page = totalPages;
+                loadRewards(true);
+                return;
+            }
+
+            if (!days.length) {
                 $hist.html('<p class="cf-muted">No Xfinity activity yet.</p>');
                 return;
             }
+
             let h = '<div class="cf-history-list">';
-            d.transactions.forEach(function (t) {
-                const amt = Number(t.amount);
-                const amtStr = (amt >= 0 ? '+' : '') + amt;
-                const amtHtml = amt >= 0
-                    ? '<span class="cf-badge cf-badge-gold">' + escHtml(amtStr) + '</span>'
-                    : '<span class="cf-muted">' + escHtml(amtStr) + '</span>';
+            days.forEach(function (day) {
+                const mins = parseInt(day.listening_mins, 10) || 0;
+                const earned = Number(day.xfinity_earned) || 0;
+                const refCount = parseInt(day.referral_count, 10) || 0;
+                const refXf = Number(day.referral_xfinity) || 0;
+                const listenXf = Number(day.listening_xfinity);
+                const listenAmt = isNaN(listenXf) ? Math.max(0, earned - refXf) : listenXf;
+
+                let body = '';
+                if (mins > 0 || listenAmt > 0) {
+                    body += '<span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+                        'Listened ' + escHtml(String(mins)) + ' min → +' + escHtml(String(Number(listenAmt).toFixed(1))) + ' Xfinity' +
+                        '</span>';
+                }
+                if (refCount > 0) {
+                    const refLabel = refCount === 1 ? 'Referral confirmed' : (refCount + ' referrals confirmed');
+                    body += '<span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px">' +
+                        escHtml(refLabel) + ' → +' + escHtml(String(refXf.toFixed(1))) + ' Xfinity' +
+                        '</span>';
+                }
+                if (!body) {
+                    body = '<span style="display:block">+' + escHtml(String(earned.toFixed(1))) + ' Xfinity</span>';
+                }
+
                 h += '<div class="cf-history-item">' +
                     '<span class="cf-history-track" style="flex:1;min-width:0">' +
-                        '<span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(t.source_label) + '</span>' +
-                        '<span class="cf-history-time" style="display:block;margin-top:2px">' + escHtml(t.date) + '</span>' +
+                        '<span class="cf-history-time" style="display:block;margin-bottom:2px">' + escHtml(day.date_label) + '</span>' +
+                        body +
                     '</span>' +
-                    amtHtml +
+                    '<span class="cf-badge cf-badge-gold">+' + escHtml(String(earned.toFixed(1))) + '</span>' +
                 '</div>';
             });
-            $hist.html(h + '</div>');
+            h += '</div>';
+            $hist.html(h);
+            const $pag = ensurePaginationSlot($hist);
+            renderPagination($pag, state.page, totalPages, state.perPage, function (page, perPage) {
+                state.page = page;
+                state.perPage = perPage;
+                loadRewards(true);
+            });
         }, function () {
-            $stats.html('<p class="cf-muted">Could not load referral stats.</p>');
+            $hist.data('loading', false);
+            if (!state.statsLoaded) {
+                $stats.html('<p class="cf-muted">Could not load referral stats.</p>');
+            }
             $hist.html('<p class="cf-muted">Could not load activity.</p>');
         });
     }
@@ -408,25 +564,10 @@
         try { document.execCommand('copy'); copied(); } catch (e) {}
     });
 
-    // ── Resend verify ─────────────────────────────────
-    $(document).on('click', '#cf-resend-verify, #cf-resend-settings', function (e) {
-        e.preventDefault();
-        $.post(CF.ajax_url, { action:'cf_resend_verify', nonce:CF.nonce }, function(){
-            const $m = $('#cf-resend-message, #cf-profile-message').first();
-            msg($m, 'Verification email sent! Check your inbox.', 'success');
-        });
-    });
-    $(document).on('click', '.cf-resend-login', function (e) {
-        e.preventDefault();
-        $.post(CF.ajax_url, { action:'cf_resend_verify', user_id:$(this).data('id'), nonce:CF.nonce },
-            () => alert('Verification email sent!')
-        );
-    });
-
-    // ── Favorites tab: unfavorite ─────────────────────
+    // ── Favorites tab: unfavorite (server-rendered list) ──
     function favoritesEmptyHtml() {
-        const msg = $('#cf-tab-favorites').data('empty-msg') || 'No favorites yet. Start listening and save tracks you love.';
-        return '<div class="cf-section-card cf-empty-state" id="cf-favorites-empty"><span class="cf-empty-icon">♥</span><p>' + msg + '</p></div>';
+        const emptyMsg = $('#cf-tab-favorites').data('empty-msg') || 'No favorites yet. Start listening and save tracks you love.';
+        return '<div class="cf-section-card cf-empty-state" id="cf-favorites-empty"><span class="cf-empty-icon">♥</span><p>' + emptyMsg + '</p></div>';
     }
 
     $(document).on('click', '.cf-fav-remove', function (e) {
@@ -439,7 +580,6 @@
         $btn.prop('disabled', true);
         window.CF_Auth.toggleFavorite(id, type).then(function (d) {
             if (d.action === 'removed' || d.is_favorite === false) {
-                const $section = $card.closest('.cf-fav-section');
                 $card.remove();
                 const $stats = $('.cf-stats-bar .cf-stat-num');
                 const statIndex = { track: 0, album: 1, post: 2 };
@@ -447,11 +587,10 @@
                     const $stat = $stats.eq(statIndex[type]);
                     $stat.text(Math.max(0, parseInt($stat.text(), 10) || 0) - 1);
                 }
-                if (!$section.find('.cf-fav-card').length) {
-                    $section.remove();
-                }
-                if (!$('#cf-tab-favorites .cf-fav-card').length) {
-                    $('#cf-tab-favorites').html(favoritesEmptyHtml());
+                if (!$('#cf-favorites-list .cf-fav-card').length) {
+                    // Last item on this page — reload so pagination/empty state stays correct.
+                    window.location.reload();
+                    return;
                 }
             }
             $btn.prop('disabled', false);
@@ -463,27 +602,22 @@
     // ── Playlists tab: create ─────────────────────────
     function playlistCardHtml(p) {
         const cover = p.cover
-            ? `<img src="${escHtml(p.cover)}" alt="" loading="lazy">`
+            ? '<img src="' + escHtml(p.cover) + '" alt="" loading="lazy">'
             : '<span aria-hidden="true">🎵</span>';
         const badge = parseInt(p.is_public, 10) ? 'Public' : 'Private';
         const count = parseInt(p.item_count, 10) || 0;
         const countLabel = count === 1 ? '1 item' : count + ' items';
-        return `<a href="${escHtml(p.share_url)}" class="cf-row-item" data-id="${p.id}">
-            <div class="cf-row-thumb${p.cover ? '' : ' cf-row-thumb--empty'}">${cover}</div>
-            <div class="cf-row-info">
-                <span class="cf-row-title">${escHtml(p.name)}</span>
-                <span class="cf-row-subtitle">${countLabel}</span>
-            </div>
-            <div class="cf-row-trailing">
-                <span class="cf-row-pill">${badge}</span>
-                <svg class="cf-row-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
-            </div>
-        </a>`;
-    }
-
-    function playlistsEmptyHtml() {
-        const msg = $('#cf-tab-playlists').data('empty-msg') || "You haven't created any playlists yet.";
-        return '<div class="cf-section-card cf-empty-state" id="cf-playlists-empty"><span class="cf-empty-icon">🎵</span><p>' + msg + '</p></div>';
+        return '<a href="' + escHtml(p.share_url) + '" class="cf-row-item" data-id="' + p.id + '">' +
+            '<div class="cf-row-thumb' + (p.cover ? '' : ' cf-row-thumb--empty') + '">' + cover + '</div>' +
+            '<div class="cf-row-info">' +
+                '<span class="cf-row-title">' + escHtml(p.name) + '</span>' +
+                '<span class="cf-row-subtitle">' + countLabel + '</span>' +
+            '</div>' +
+            '<div class="cf-row-trailing">' +
+                '<span class="cf-row-pill">' + badge + '</span>' +
+                '<svg class="cf-row-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>' +
+            '</div>' +
+        '</a>';
     }
 
     $('#cf-create-playlist-form').on('submit', function (e) {
@@ -510,6 +644,21 @@
             setLoading($f, false);
             msg($m, (d && d.message) || 'Could not create playlist.', 'error');
         });
+    });
+
+    // ── Resend verify ─────────────────────────────────
+    $(document).on('click', '#cf-resend-verify, #cf-resend-settings', function (e) {
+        e.preventDefault();
+        $.post(CF.ajax_url, { action:'cf_resend_verify', nonce:CF.nonce }, function(){
+            const $m = $('#cf-resend-message, #cf-profile-message').first();
+            msg($m, 'Verification email sent! Check your inbox.', 'success');
+        });
+    });
+    $(document).on('click', '.cf-resend-login', function (e) {
+        e.preventDefault();
+        $.post(CF.ajax_url, { action:'cf_resend_verify', user_id:$(this).data('id'), nonce:CF.nonce },
+            () => alert('Verification email sent!')
+        );
     });
 
     // ── Playlist view page: manage controls ───────────

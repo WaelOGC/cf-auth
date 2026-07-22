@@ -832,6 +832,280 @@ class CF_Shortcodes {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Profile tab pagination (Favorites / History / Playlists)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Read and clamp page / per-page query args for a profile tab.
+     *
+     * @param string $page_param
+     * @param string $per_page_param
+     * @return array{page: int, per_page: int, offset: int}
+     */
+    private function get_tab_pagination_args( $page_param, $per_page_param ) {
+        $page = isset( $_GET[ $page_param ] ) ? max( 1, absint( $_GET[ $page_param ] ) ) : 1;
+        $per_page = isset( $_GET[ $per_page_param ] ) ? absint( $_GET[ $per_page_param ] ) : 10;
+        if ( ! in_array( $per_page, [ 10, 25, 50, 100 ], true ) ) {
+            $per_page = 10;
+        }
+
+        return [
+            'page'     => $page,
+            'per_page' => $per_page,
+            'offset'   => ( $page - 1 ) * $per_page,
+        ];
+    }
+
+    /**
+     * Combined published favorites (tracks → albums → posts) for the current user.
+     *
+     * @param int[] $track_ids
+     * @param int[] $album_ids
+     * @param int[] $post_ids
+     * @return array<int, array{post: WP_Post, type: string}>
+     */
+    private function build_combined_favorites_list( array $track_ids, array $album_ids, array $post_ids ) {
+        $combined = [];
+        foreach ( $this->get_published_favorites( $track_ids, 'tracks' ) as $post ) {
+            $combined[] = [ 'post' => $post, 'type' => 'track' ];
+        }
+        foreach ( $this->get_published_favorites( $album_ids, 'albums' ) as $post ) {
+            $combined[] = [ 'post' => $post, 'type' => 'album' ];
+        }
+        foreach ( $this->get_published_favorites( $post_ids, 'post' ) as $post ) {
+            $combined[] = [ 'post' => $post, 'type' => 'post' ];
+        }
+        return $combined;
+    }
+
+    /**
+     * Paginated listening history (published tracks only).
+     *
+     * @param int $user_id
+     * @param int $per_page
+     * @param int $offset
+     * @return array{items: array, total: int}
+     */
+    private function get_paginated_listening_history( $user_id, $per_page, $offset ) {
+        global $wpdb;
+
+        $user_id  = absint( $user_id );
+        $per_page = max( 1, absint( $per_page ) );
+        $offset   = max( 0, absint( $offset ) );
+
+        $history_table = $wpdb->prefix . 'cf_listening_history';
+        $posts_table   = $wpdb->posts;
+
+        $total = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*)
+             FROM {$history_table} h
+             INNER JOIN {$posts_table} p ON p.ID = h.track_id
+             WHERE h.user_id = %d
+               AND p.post_type = 'tracks'
+               AND p.post_status = 'publish'",
+            $user_id
+        ) );
+
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT h.track_id, h.listened_at
+             FROM {$history_table} h
+             INNER JOIN {$posts_table} p ON p.ID = h.track_id
+             WHERE h.user_id = %d
+               AND p.post_type = 'tracks'
+               AND p.post_status = 'publish'
+             ORDER BY h.listened_at DESC
+             LIMIT %d OFFSET %d",
+            $user_id,
+            $per_page,
+            $offset
+        ) );
+
+        $items = [];
+        foreach ( (array) $rows as $row ) {
+            $post = get_post( (int) $row->track_id );
+            if ( ! $post ) {
+                continue;
+            }
+            $items[] = [
+                'track_id'    => (int) $row->track_id,
+                'listened_at' => $row->listened_at,
+                'title'       => $post->post_title,
+                'url'         => get_permalink( $post ),
+                'cover'       => CF_Profile::get_release_cover_url( $post, 'track' ),
+            ];
+        }
+
+        return [ 'items' => $items, 'total' => $total ];
+    }
+
+    /**
+     * Paginated playlists for the profile tab (LIMIT/OFFSET in shortcodes).
+     *
+     * @param int $user_id
+     * @param int $per_page
+     * @param int $offset
+     * @return array{items: array, total: int}
+     */
+    private function get_paginated_user_playlists( $user_id, $per_page, $offset ) {
+        global $wpdb;
+
+        $user_id  = absint( $user_id );
+        $per_page = max( 1, absint( $per_page ) );
+        $offset   = max( 0, absint( $offset ) );
+
+        $table       = $wpdb->prefix . 'cf_playlists';
+        $items_table = $wpdb->prefix . 'cf_playlist_items';
+
+        $total = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE user_id = %d",
+            $user_id
+        ) );
+
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT p.*, COUNT(i.id) AS item_count
+             FROM {$table} p
+             LEFT JOIN {$items_table} i ON i.playlist_id = p.id
+             WHERE p.user_id = %d
+             GROUP BY p.id
+             ORDER BY p.created_at DESC
+             LIMIT %d OFFSET %d",
+            $user_id,
+            $per_page,
+            $offset
+        ) );
+
+        $items = [];
+        foreach ( (array) $rows as $row ) {
+            $items[] = [
+                'id'         => (int) $row->id,
+                'name'       => $row->name,
+                'is_public'  => (int) $row->is_public,
+                'item_count' => (int) $row->item_count,
+                'share_url'  => CF_Playlists::get_share_url( (string) $row->share_token ),
+                'cover'      => CF_Playlists::get_playlist_cover( (int) $row->id ),
+            ];
+        }
+
+        return [ 'items' => $items, 'total' => $total ];
+    }
+
+    /**
+     * Shared pagination controls for profile tabs (plain links + forms, works without JS).
+     *
+     * @param int    $current_page
+     * @param int    $total_pages
+     * @param int    $per_page
+     * @param string $page_param
+     * @param string $per_page_param
+     * @param array  $per_page_options
+     */
+    private function render_pagination( $current_page, $total_pages, $per_page, $page_param, $per_page_param, $per_page_options = [ 10, 25, 50, 100 ] ) {
+        $total_pages   = (int) $total_pages;
+        $current_page  = max( 1, (int) $current_page );
+        $per_page      = (int) $per_page;
+
+        if ( $total_pages <= 1 ) {
+            return;
+        }
+
+        $hash_map = [
+            'cf_fav_page'  => 'favorites',
+            'cf_hist_page' => 'history',
+            'cf_pl_page'   => 'playlists',
+        ];
+        $tab_hash = $hash_map[ $page_param ] ?? '';
+
+        $base_url = get_permalink();
+        if ( ! $base_url ) {
+            $base_url = home_url( '/cf-profile' );
+        }
+
+        $build_url = function ( $page, $size ) use ( $base_url, $page_param, $per_page_param, $tab_hash ) {
+            $url = add_query_arg(
+                [
+                    $page_param     => max( 1, (int) $page ),
+                    $per_page_param => (int) $size,
+                ],
+                $base_url
+            );
+            return $tab_hash ? ( $url . '#' . $tab_hash ) : $url;
+        };
+
+        // Truncated page list: first 8 … last, or window around current when deep in.
+        $pages = [];
+        if ( $total_pages <= 9 ) {
+            for ( $i = 1; $i <= $total_pages; $i++ ) {
+                $pages[] = $i;
+            }
+        } elseif ( $current_page <= 5 ) {
+            for ( $i = 1; $i <= 8; $i++ ) {
+                $pages[] = $i;
+            }
+            $pages[] = '…';
+            $pages[] = $total_pages;
+        } elseif ( $current_page >= $total_pages - 4 ) {
+            $pages[] = 1;
+            $pages[] = '…';
+            for ( $i = $total_pages - 7; $i <= $total_pages; $i++ ) {
+                $pages[] = $i;
+            }
+        } else {
+            $pages[] = 1;
+            $pages[] = '…';
+            for ( $i = $current_page - 2; $i <= $current_page + 2; $i++ ) {
+                $pages[] = $i;
+            }
+            $pages[] = '…';
+            $pages[] = $total_pages;
+        }
+        ?>
+        <div class="cf-pagination-wrap">
+            <nav class="cf-pagination" aria-label="<?php esc_attr_e( 'Pagination', 'cf-auth' ); ?>">
+                <div class="cf-pagination-size">
+                    <label>
+                        <?php esc_html_e( 'Show:', 'cf-auth' ); ?>
+                        <select class="cf-pagination-per-page" onchange="if (this.value) { window.location.href = this.value; }">
+                            <?php foreach ( $per_page_options as $opt ) : ?>
+                                <option value="<?php echo esc_url( $build_url( 1, $opt ) ); ?>" <?php selected( $per_page, $opt ); ?>>
+                                    <?php echo (int) $opt; ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                </div>
+
+                <div class="cf-pagination-pages">
+                    <?php foreach ( $pages as $p ) : ?>
+                        <?php if ( $p === '…' ) : ?>
+                            <span class="cf-pagination-ellipsis" aria-hidden="true">…</span>
+                        <?php elseif ( (int) $p === $current_page ) : ?>
+                            <span class="cf-pagination-page is-active" aria-current="page"><?php echo (int) $p; ?></span>
+                        <?php else : ?>
+                            <a class="cf-pagination-page" href="<?php echo esc_url( $build_url( $p, $per_page ) ); ?>"><?php echo (int) $p; ?></a>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+
+                    <?php if ( $current_page < $total_pages ) : ?>
+                        <a class="cf-pagination-page cf-pagination-next" href="<?php echo esc_url( $build_url( $current_page + 1, $per_page ) ); ?>">
+                            <?php esc_html_e( 'Next', 'cf-auth' ); ?>
+                        </a>
+                    <?php endif; ?>
+                </div>
+
+                <form class="cf-pagination-goto" method="get" action="<?php echo esc_url( $base_url ); ?>" data-cf-tab="<?php echo esc_attr( $tab_hash ); ?>">
+                    <input type="hidden" name="<?php echo esc_attr( $per_page_param ); ?>" value="<?php echo esc_attr( $per_page ); ?>">
+                    <label>
+                        <?php esc_html_e( 'Go to page:', 'cf-auth' ); ?>
+                        <input type="number" class="cf-pagination-goto-input" name="<?php echo esc_attr( $page_param ); ?>" min="1" max="<?php echo esc_attr( $total_pages ); ?>" value="<?php echo esc_attr( $current_page ); ?>">
+                    </label>
+                    <button type="submit" class="cf-btn cf-btn-outline-sm"><?php esc_html_e( 'Go', 'cf-auth' ); ?></button>
+                </form>
+            </nav>
+        </div>
+        <?php
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // PLAYLIST VIEW — public share page
     // ─────────────────────────────────────────────────────────────────────────
     public function render_playlist_view() {
@@ -985,14 +1259,34 @@ class CF_Shortcodes {
         $fav_tracks       = get_user_meta( $user_id, 'cf_favorite_tracks', true ) ?: [];
         $fav_albums       = get_user_meta( $user_id, 'cf_favorite_albums', true ) ?: [];
         $fav_posts        = get_user_meta( $user_id, 'cf_favorite_posts', true ) ?: [];
-        $published_tracks = $this->get_published_favorites( $fav_tracks, 'tracks' );
-        $published_albums = $this->get_published_favorites( $fav_albums, 'albums' );
-        $published_posts  = $this->get_published_favorites( $fav_posts, 'post' );
-        $has_favorites    = ! empty( $published_tracks ) || ! empty( $published_albums ) || ! empty( $published_posts );
-        $user_playlists   = CF_Playlists::get_user_playlists( $user_id );
         $verified         = get_user_meta( $user_id, 'cf_email_verified', true );
         $xfinity_balance  = CF_Xfinity::get_instance()->get_balance( $user_id );
         $referral_link    = CF_Referral::get_instance()->get_referral_link( $user_id );
+
+        // ── Favorites pagination (user-meta list; slice in PHP) ──
+        $fav_args     = $this->get_tab_pagination_args( 'cf_fav_page', 'cf_fav_per_page' );
+        $fav_all      = $this->build_combined_favorites_list( $fav_tracks, $fav_albums, $fav_posts );
+        $fav_total    = count( $fav_all );
+        $fav_pages    = $fav_total > 0 ? (int) ceil( $fav_total / $fav_args['per_page'] ) : 0;
+        if ( $fav_args['page'] > max( 1, $fav_pages ) ) {
+            $fav_args['page']   = max( 1, $fav_pages );
+            $fav_args['offset'] = ( $fav_args['page'] - 1 ) * $fav_args['per_page'];
+        }
+        $fav_page_items = array_slice( $fav_all, $fav_args['offset'], $fav_args['per_page'] );
+
+        // ── History pagination (wpdb LIMIT/OFFSET) ──
+        $hist_args  = $this->get_tab_pagination_args( 'cf_hist_page', 'cf_hist_per_page' );
+        $hist_data  = $this->get_paginated_listening_history( $user_id, $hist_args['per_page'], $hist_args['offset'] );
+        $hist_total = $hist_data['total'];
+        $hist_pages = $hist_total > 0 ? (int) ceil( $hist_total / $hist_args['per_page'] ) : 0;
+        $hist_items = $hist_data['items'];
+
+        // ── Playlists pagination (wpdb LIMIT/OFFSET) ──
+        $pl_args  = $this->get_tab_pagination_args( 'cf_pl_page', 'cf_pl_per_page' );
+        $pl_data  = $this->get_paginated_user_playlists( $user_id, $pl_args['per_page'], $pl_args['offset'] );
+        $pl_total = $pl_data['total'];
+        $pl_pages = $pl_total > 0 ? (int) ceil( $pl_total / $pl_args['per_page'] ) : 0;
+        $pl_items = $pl_data['items'];
 
         ob_start(); ?>
         <div class="cf-page-wrap cf-profile-page">
@@ -1102,52 +1396,62 @@ class CF_Shortcodes {
             <!-- ── Tab: Favorites ── -->
             <div class="cf-tab-panel" id="cf-tab-favorites" style="display:none"
                  data-empty-msg="<?php echo esc_attr( __( 'No favorites yet. Start listening and save tracks you love.', 'cf-auth' ) ); ?>">
-                <?php if ( ! $has_favorites ) : ?>
+                <?php if ( $fav_total === 0 ) : ?>
                 <div class="cf-section-card cf-empty-state" id="cf-favorites-empty">
                     <span class="cf-empty-icon">♥</span>
-                    <p><?php _e('No favorites yet. Start listening and save tracks you love.','cf-auth'); ?></p>
+                    <p><?php _e( 'No favorites yet. Start listening and save tracks you love.', 'cf-auth' ); ?></p>
                 </div>
                 <?php else : ?>
-                    <?php if ( ! empty( $published_tracks ) ) : ?>
-                    <div class="cf-section-card cf-fav-section" data-section="tracks">
-                        <h4 class="cf-section-title"><?php _e('Tracks','cf-auth'); ?></h4>
-                        <div class="cf-row-list">
-                            <?php foreach ( $published_tracks as $post ) : ?>
-                                <?php $this->render_favorite_card( $post, 'track' ); ?>
-                            <?php endforeach; ?>
-                        </div>
+                <div class="cf-section-card">
+                    <h4 class="cf-section-title"><?php _e( 'Favorites', 'cf-auth' ); ?></h4>
+                    <div class="cf-row-list" id="cf-favorites-list">
+                        <?php foreach ( $fav_page_items as $entry ) : ?>
+                            <?php $this->render_favorite_card( $entry['post'], $entry['type'] ); ?>
+                        <?php endforeach; ?>
                     </div>
-                    <?php endif; ?>
-                    <?php if ( ! empty( $published_albums ) ) : ?>
-                    <div class="cf-section-card cf-fav-section" data-section="albums">
-                        <h4 class="cf-section-title"><?php _e('Albums','cf-auth'); ?></h4>
-                        <div class="cf-row-list">
-                            <?php foreach ( $published_albums as $post ) : ?>
-                                <?php $this->render_favorite_card( $post, 'album' ); ?>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                    <?php endif; ?>
-                    <?php if ( ! empty( $published_posts ) ) : ?>
-                    <div class="cf-section-card cf-fav-section" data-section="articles">
-                        <h4 class="cf-section-title"><?php _e( 'Articles', 'cf-auth' ); ?></h4>
-                        <div class="cf-row-list">
-                            <?php foreach ( $published_posts as $post ) : ?>
-                                <?php $this->render_favorite_card( $post, 'post' ); ?>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                    <?php endif; ?>
+                    <?php
+                    $this->render_pagination(
+                        $fav_args['page'],
+                        $fav_pages,
+                        $fav_args['per_page'],
+                        'cf_fav_page',
+                        'cf_fav_per_page'
+                    );
+                    ?>
+                </div>
                 <?php endif; ?>
             </div>
 
             <!-- ── Tab: History ── -->
             <div class="cf-tab-panel" id="cf-tab-history" style="display:none">
                 <div class="cf-section-card">
-                    <h4 class="cf-section-title"><?php _e('Listening History','cf-auth'); ?></h4>
-                    <div id="cf-history-container">
-                        <p class="cf-muted"><?php _e('Loading...','cf-auth'); ?></p>
-                    </div>
+                    <h4 class="cf-section-title"><?php _e( 'Listening History', 'cf-auth' ); ?></h4>
+                    <?php if ( $hist_total === 0 ) : ?>
+                        <p class="cf-muted"><?php _e( 'No listening history yet.', 'cf-auth' ); ?></p>
+                    <?php else : ?>
+                        <div class="cf-history-list" id="cf-history-list">
+                            <?php foreach ( $hist_items as $item ) : ?>
+                                <div class="cf-history-item">
+                                    <span class="cf-history-track" style="display:flex;align-items:center;flex:1;min-width:0">
+                                        <?php if ( ! empty( $item['cover'] ) ) : ?>
+                                            <img src="<?php echo esc_url( $item['cover'] ); ?>" alt="" class="cf-history-cover" width="36" height="36" loading="lazy" style="border-radius:4px;object-fit:cover;margin-right:10px;flex-shrink:0">
+                                        <?php endif; ?>
+                                        <a href="<?php echo esc_url( $item['url'] ); ?>" class="cf-history-track-link" style="color:inherit;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo esc_html( $item['title'] ); ?></a>
+                                    </span>
+                                    <span class="cf-history-time"><?php echo esc_html( $item['listened_at'] ); ?></span>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php
+                        $this->render_pagination(
+                            $hist_args['page'],
+                            $hist_pages,
+                            $hist_args['per_page'],
+                            'cf_hist_page',
+                            'cf_hist_per_page'
+                        );
+                        ?>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -1166,7 +1470,7 @@ class CF_Shortcodes {
                     <div id="cf-create-playlist-msg" class="cf-message" style="display:none"></div>
                 </div>
 
-                <?php if ( empty( $user_playlists ) ) : ?>
+                <?php if ( $pl_total === 0 ) : ?>
                 <div class="cf-section-card cf-empty-state" id="cf-playlists-empty">
                     <span class="cf-empty-icon">🎵</span>
                     <p><?php _e( 'You haven\'t created any playlists yet.', 'cf-auth' ); ?></p>
@@ -1175,10 +1479,19 @@ class CF_Shortcodes {
                 <div class="cf-section-card">
                     <h4 class="cf-section-title"><?php _e( 'Your Playlists', 'cf-auth' ); ?></h4>
                     <div class="cf-row-list" id="cf-playlists-grid">
-                        <?php foreach ( $user_playlists as $playlist ) : ?>
+                        <?php foreach ( $pl_items as $playlist ) : ?>
                             <?php $this->render_playlist_profile_card( $playlist ); ?>
                         <?php endforeach; ?>
                     </div>
+                    <?php
+                    $this->render_pagination(
+                        $pl_args['page'],
+                        $pl_pages,
+                        $pl_args['per_page'],
+                        'cf_pl_page',
+                        'cf_pl_per_page'
+                    );
+                    ?>
                 </div>
                 <?php endif; ?>
             </div>
@@ -1207,7 +1520,7 @@ class CF_Shortcodes {
                 </div>
 
                 <div class="cf-section-card">
-                    <h4 class="cf-section-title"><?php _e( 'Recent Xfinity Activity', 'cf-auth' ); ?></h4>
+                    <h4 class="cf-section-title"><?php _e( 'Daily Xfinity Activity', 'cf-auth' ); ?></h4>
                     <div id="cf-xfinity-history-container">
                         <p class="cf-muted"><?php _e( 'Loading...', 'cf-auth' ); ?></p>
                     </div>
