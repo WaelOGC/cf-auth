@@ -3,7 +3,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class CF_Install {
 
-    const DB_VERSION = '4';
+    const DB_VERSION = '5';
 
     public static function activate() {
         self::create_tables();
@@ -143,6 +143,71 @@ class CF_Install {
             INDEX idx_user_id (user_id)
         ) $charset;";
 
+        // Xfinity ledger (append-only balance log)
+        $sql9 = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}cf_xfinity_ledger (
+            id            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id       BIGINT UNSIGNED NOT NULL,
+            amount        DECIMAL(10,2)   NOT NULL,
+            source        VARCHAR(50)     NOT NULL,
+            reference_id  BIGINT UNSIGNED DEFAULT NULL,
+            balance_after DECIMAL(10,2)   NOT NULL,
+            created_at    DATETIME        DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_user_id (user_id)
+        ) $charset;";
+
+        // Engagement sessions (listening / reading)
+        $sql10 = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}cf_engagement_sessions (
+            id               BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id          BIGINT UNSIGNED NOT NULL,
+            activity_type    VARCHAR(20)     NOT NULL,
+            post_id          BIGINT UNSIGNED NOT NULL,
+            duration_seconds INT             NOT NULL DEFAULT 0,
+            xfinity_earned   DECIMAL(10,2)   NOT NULL DEFAULT 0,
+            is_valid         TINYINT(1)      NOT NULL DEFAULT 1,
+            created_at       DATETIME        DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_user_id (user_id)
+        ) $charset;";
+
+        // Referral relationships
+        $sql11 = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}cf_referrals (
+            id                       BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            referrer_user_id         BIGINT UNSIGNED NOT NULL,
+            referred_user_id         BIGINT UNSIGNED NOT NULL,
+            referral_code            VARCHAR(20)     NOT NULL,
+            status                   VARCHAR(20)     NOT NULL DEFAULT 'pending',
+            xfinity_awarded_referrer DECIMAL(10,2)   NOT NULL DEFAULT 0,
+            xfinity_awarded_referred DECIMAL(10,2)   NOT NULL DEFAULT 0,
+            confirmed_at             DATETIME        DEFAULT NULL,
+            created_at               DATETIME        DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_referrer (referrer_user_id),
+            INDEX idx_referred (referred_user_id),
+            UNIQUE KEY unique_referred (referred_user_id)
+        ) $charset;";
+
+        // One unique referral code per user
+        $sql12 = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}cf_referral_codes (
+            id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id    BIGINT UNSIGNED NOT NULL,
+            code       VARCHAR(20)     NOT NULL,
+            created_at DATETIME        DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY unique_user (user_id),
+            UNIQUE KEY unique_code (code),
+            INDEX idx_user_id (user_id)
+        ) $charset;";
+
+        // Milestone definitions + redemption log (admin reviews manually)
+        $sql13 = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}cf_xfinity_milestones (
+            id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id             BIGINT UNSIGNED NOT NULL,
+            milestone_threshold INT             NOT NULL,
+            reward_type         VARCHAR(50)     NOT NULL DEFAULT 'coupon',
+            reward_description  VARCHAR(255)    DEFAULT NULL,
+            status              VARCHAR(20)     NOT NULL DEFAULT 'pending_review',
+            sent_at             DATETIME        DEFAULT NULL,
+            created_at          DATETIME        DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_user_id (user_id)
+        ) $charset;";
+
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta( $sql1 );
         dbDelta( $sql2 );
@@ -152,6 +217,11 @@ class CF_Install {
         dbDelta( $sql6 );
         dbDelta( $sql7 );
         dbDelta( $sql8 );
+        dbDelta( $sql9 );
+        dbDelta( $sql10 );
+        dbDelta( $sql11 );
+        dbDelta( $sql12 );
+        dbDelta( $sql13 );
     }
 
     // ── Custom Role ───────────────────────────────────────────────────────────

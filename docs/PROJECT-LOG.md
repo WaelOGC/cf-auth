@@ -28,6 +28,7 @@ This file tracks every feature, fix, and pending item implemented in the cf-auth
 
 ### User Profile (`class-cf-profile.php`)
 - Profile field updates, avatar upload (JPG/PNG/GIF/WEBP, 2MB max, old avatar auto-deleted on replace), favorites toggle, listening history logging/retrieval, nonce refresh, and account deletion — all via AJAX handlers guarded by `check_ajax_referer` + `is_user_logged_in`
+- **Rewards tab** on `cf_user_profile` (between Playlists and Settings): server-rendered Xfinity balance + referral link with client-side Copy; AJAX `cf_get_xfinity_summary` (in `class-cf-xfinity.php`) loads referral stats (maps `flagged_fake` → "Under review") and last 20 ledger entries with human-readable source labels; JS mirrors `loadHistory()` once-per-page-load pattern in `cf-auth.js`
 
 ### Playlists (`class-cf-playlists.php`)
 - Users can create, rename, delete, and toggle public/private visibility on playlists; add/remove tracks or albums; fetch their own playlists (optionally filtered by whether a given item is already in them); fetch a public playlist by share token
@@ -58,6 +59,19 @@ This file tracks every feature, fix, and pending item implemented in the cf-auth
 
 ### Activity Logging
 - `class-cf-activity-log.php` tracks login attempts, registrations, and failures with reasons; also used by the donations webhook to log verification failures
+- Singleton pattern (`get_instance()` / private `__construct()`) aligned with other CF classes; bootstrapped from `cf_auth_init()`
+
+### Xfinity Engagement, Referrals & Milestones
+- Currency **"Xfinity"** tracked via append-only ledger table `cf_xfinity_ledger` + cached `cf_xfinity_balance` user meta (`class-cf-xfinity.php`)
+- Earn rates (constants): listening 0.1/min, reading 0.05/min, referral 5+5 (referrer + new user)
+- Engagement pings (`class-cf-engagement-tracker.php` + `assets/js/cf-engagement-tracker.js`): AJAX `cf_track_listening_ping` / `cf_track_reading_ping` every 60s; server anti-cheat rate-limits to 1 ping per 55s per user+activity; reading requires scroll/mousemove/keydown activity in the window
+- Referrals (`class-cf-referral.php`): unique 8-char code per user, `?ref=` cookie (30 days), pending row on signup, confirm on email verify or first engagement; same-IP referrer/referred → `flagged_fake` (no award)
+- Milestones at 1000 / 5000 / 10000 (filterable via `cf_xfinity_milestone_thresholds`): insert `pending_review` only — admin sends rewards manually (no auto-send)
+- DB tables created via `CF_Install` dbDelta upgrade (`DB_VERSION` 5): `cf_xfinity_ledger`, `cf_engagement_sessions`, `cf_referrals`, `cf_referral_codes`, `cf_xfinity_milestones`
+
+### Hook Registration Fixes (v2.0.2-fix1)
+- Removed nested `wp_delete_user()` / re-`add_action( 'delete_user' )` inside `cleanup_user_on_delete()` — cleanup stays registered once in `register_hooks()` and runs a single time when WordPress fires `delete_user`
+- Removed duplicate `wp_ajax_cf_logout` / `wp_ajax_nopriv_cf_logout` registrations from `CF_User_Menu`; logout is handled only by `CF_Login::handle_logout()`
 
 ## Known Pending Items
 - Admin bulk email sending is still deferred — occasional emails are currently sent manually via the hosting provider's email panel

@@ -169,14 +169,6 @@ class CF_Core {
         delete_user_meta( $user_id, 'cf_favorite_tracks' );
         delete_user_meta( $user_id, 'cf_favorite_albums' );
         delete_user_meta( $user_id, 'cf_last_active' );
-
-        if ( ! function_exists( 'wp_delete_user' ) ) {
-            require_once ABSPATH . 'wp-admin/includes/user.php';
-        }
-
-        remove_action( 'delete_user', [ $this, 'cleanup_user_on_delete' ] );
-        wp_delete_user( $user_id );
-        add_action( 'delete_user', [ $this, 'cleanup_user_on_delete' ] );
     }
 
     // Clean admin bar — remove "Howdy" etc (only runs if admin bar somehow shows)

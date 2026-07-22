@@ -991,6 +991,8 @@ class CF_Shortcodes {
         $has_favorites    = ! empty( $published_tracks ) || ! empty( $published_albums ) || ! empty( $published_posts );
         $user_playlists   = CF_Playlists::get_user_playlists( $user_id );
         $verified         = get_user_meta( $user_id, 'cf_email_verified', true );
+        $xfinity_balance  = CF_Xfinity::get_instance()->get_balance( $user_id );
+        $referral_link    = CF_Referral::get_instance()->get_referral_link( $user_id );
 
         ob_start(); ?>
         <div class="cf-page-wrap cf-profile-page">
@@ -1069,6 +1071,10 @@ class CF_Shortcodes {
                     <button class="cf-tab" data-tab="playlists">
                         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
                         <?php _e('Playlists','cf-auth'); ?>
+                    </button>
+                    <button class="cf-tab" data-tab="rewards">
+                        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
+                        <?php _e('Rewards','cf-auth'); ?>
                     </button>
                     <button class="cf-tab" data-tab="settings">
                         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -1175,6 +1181,37 @@ class CF_Shortcodes {
                     </div>
                 </div>
                 <?php endif; ?>
+            </div>
+
+            <!-- ── Tab: Rewards ── -->
+            <div class="cf-tab-panel" id="cf-tab-rewards" style="display:none">
+                <div class="cf-section-card">
+                    <h4 class="cf-section-title"><?php _e( 'Your Xfinity Balance', 'cf-auth' ); ?></h4>
+                    <span class="cf-stat-num"><?php echo esc_html( number_format_i18n( $xfinity_balance, 2 ) ); ?></span>
+                    <span class="cf-stat-lbl"><?php _e( 'Xfinity', 'cf-auth' ); ?></span>
+                </div>
+
+                <div class="cf-section-card">
+                    <h4 class="cf-section-title"><?php _e( 'Your Referral Link', 'cf-auth' ); ?></h4>
+                    <div class="cf-playlist-create-form">
+                        <input type="text" id="cf-referral-link-input" value="<?php echo esc_attr( $referral_link ); ?>" readonly>
+                        <button type="button" id="cf-copy-referral-link" class="cf-btn cf-btn-primary-sm"><?php _e( 'Copy', 'cf-auth' ); ?></button>
+                    </div>
+                </div>
+
+                <div class="cf-section-card">
+                    <h4 class="cf-section-title"><?php _e( 'Referral Stats', 'cf-auth' ); ?></h4>
+                    <div id="cf-referral-stats-container">
+                        <p class="cf-muted"><?php _e( 'Loading...', 'cf-auth' ); ?></p>
+                    </div>
+                </div>
+
+                <div class="cf-section-card">
+                    <h4 class="cf-section-title"><?php _e( 'Recent Xfinity Activity', 'cf-auth' ); ?></h4>
+                    <div id="cf-xfinity-history-container">
+                        <p class="cf-muted"><?php _e( 'Loading...', 'cf-auth' ); ?></p>
+                    </div>
+                </div>
             </div>
 
             <!-- ── Tab: Settings ── -->

@@ -225,7 +225,7 @@
     });
 
     // ── Profile tabs ──────────────────────────────────
-    const PROFILE_TABS = ['overview', 'favorites', 'history', 'playlists', 'settings'];
+    const PROFILE_TABS = ['overview', 'favorites', 'history', 'playlists', 'rewards', 'settings'];
 
     $(document).on('click', '.cf-tab', function () {
         const tab = $(this).data('tab');
@@ -234,6 +234,7 @@
         $('.cf-tab-panel').hide();
         $('#cf-tab-' + tab).show();
         if (tab === 'history') loadHistory();
+        if (tab === 'rewards') loadRewards();
         history.replaceState(null, '', '#' + tab);
     });
 
@@ -335,6 +336,77 @@
             $c.html(h + '</div>');
         }, () => $c.html('<p class="cf-muted">Could not load history.</p>'));
     }
+
+    // ── Rewards tab (Xfinity + referrals) ──────────────
+    function loadRewards() {
+        const $stats = $('#cf-referral-stats-container');
+        const $hist  = $('#cf-xfinity-history-container');
+        if ($stats.data('loaded')) return;
+        post('cf_get_xfinity_summary', {}, function(d){
+            $stats.data('loaded', true);
+            $hist.data('loaded', true);
+
+            const s = d.referral_stats || {};
+            $stats.html(
+                '<div class="cf-stats-bar" style="margin:0;border:none;padding:0">' +
+                    '<div class="cf-stat"><span class="cf-stat-num">' + escHtml(String(s.total || 0)) + '</span><span class="cf-stat-lbl">Total</span></div>' +
+                    '<div class="cf-stat-sep"></div>' +
+                    '<div class="cf-stat"><span class="cf-stat-num">' + escHtml(String(s.confirmed || 0)) + '</span><span class="cf-stat-lbl">Confirmed</span></div>' +
+                    '<div class="cf-stat-sep"></div>' +
+                    '<div class="cf-stat"><span class="cf-stat-num">' + escHtml(String(s.pending || 0)) + '</span><span class="cf-stat-lbl">Pending</span></div>' +
+                    '<div class="cf-stat-sep"></div>' +
+                    '<div class="cf-stat"><span class="cf-stat-num">' + escHtml(String(s.under_review || 0)) + '</span><span class="cf-stat-lbl">Under review</span></div>' +
+                '</div>'
+            );
+
+            if (!d.transactions || !d.transactions.length) {
+                $hist.html('<p class="cf-muted">No Xfinity activity yet.</p>');
+                return;
+            }
+            let h = '<div class="cf-history-list">';
+            d.transactions.forEach(function (t) {
+                const amt = Number(t.amount);
+                const amtStr = (amt >= 0 ? '+' : '') + amt;
+                const amtHtml = amt >= 0
+                    ? '<span class="cf-badge cf-badge-gold">' + escHtml(amtStr) + '</span>'
+                    : '<span class="cf-muted">' + escHtml(amtStr) + '</span>';
+                h += '<div class="cf-history-item">' +
+                    '<span class="cf-history-track" style="flex:1;min-width:0">' +
+                        '<span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(t.source_label) + '</span>' +
+                        '<span class="cf-history-time" style="display:block;margin-top:2px">' + escHtml(t.date) + '</span>' +
+                    '</span>' +
+                    amtHtml +
+                '</div>';
+            });
+            $hist.html(h + '</div>');
+        }, function () {
+            $stats.html('<p class="cf-muted">Could not load referral stats.</p>');
+            $hist.html('<p class="cf-muted">Could not load activity.</p>');
+        });
+    }
+
+    $(document).on('click', '#cf-copy-referral-link', function () {
+        const $btn = $(this);
+        const $input = $('#cf-referral-link-input');
+        const text = $input.val() || '';
+        const original = $btn.text();
+
+        function copied() {
+            $btn.text('Copied!');
+            setTimeout(function () { $btn.text(original); }, 2000);
+        }
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(copied).catch(function () {
+                $input.trigger('select');
+                try { document.execCommand('copy'); copied(); } catch (e) {}
+            });
+            return;
+        }
+
+        $input.trigger('focus').trigger('select');
+        try { document.execCommand('copy'); copied(); } catch (e) {}
+    });
 
     // ── Resend verify ─────────────────────────────────
     $(document).on('click', '#cf-resend-verify, #cf-resend-settings', function (e) {

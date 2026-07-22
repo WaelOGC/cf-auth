@@ -3,6 +3,19 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class CF_Activity_Log {
 
+    private static $instance = null;
+
+    public static function get_instance() {
+        if ( null === self::$instance ) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
+    private function __construct() {
+        // Utility class — hooks are registered by callers; singleton for consistency.
+    }
+
     public static function table_name() {
         global $wpdb;
         return $wpdb->prefix . 'cf_auth_activity_log';

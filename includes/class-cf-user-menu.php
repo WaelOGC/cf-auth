@@ -21,10 +21,6 @@ class CF_User_Menu {
         add_action( 'after_setup_theme',  [ $this, 'hide_admin_bar' ] );
         add_action( 'template_redirect',  [ $this, 'block_admin_access' ] );
         add_filter( 'show_admin_bar',     [ $this, 'filter_admin_bar' ] );
-
-        // AJAX logout (already in login class, but also handle here for the menu)
-        add_action( 'wp_ajax_cf_logout',        [ $this, 'handle_logout' ] );
-        add_action( 'wp_ajax_nopriv_cf_logout', [ $this, 'handle_logout' ] );
     }
 
     // ── Render the User Menu Button + Dropdown ────────────────────────────────
@@ -183,16 +179,5 @@ class CF_User_Menu {
     public function filter_admin_bar( $show ) {
         if ( ! current_user_can( 'manage_options' ) ) return false;
         return $show;
-    }
-
-    // ── Logout handler ────────────────────────────────────────────────────────
-    public function handle_logout() {
-        // Only process once (may be registered in CF_Login too)
-        if ( did_action( 'wp_ajax_cf_logout' ) > 1 ) return;
-        check_ajax_referer( 'cf_auth_nonce', 'nonce' );
-        wp_logout();
-        wp_send_json_success( [
-            'redirect' => get_option( 'cf_auth_logout_redirect', home_url() ),
-        ] );
     }
 }
