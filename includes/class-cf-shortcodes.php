@@ -1004,7 +1004,8 @@ class CF_Shortcodes {
         $current_page  = max( 1, (int) $current_page );
         $per_page      = (int) $per_page;
 
-        if ( $total_pages <= 1 ) {
+        // Callers only invoke this when the list has items; skip only if pages are meaningless.
+        if ( $total_pages < 1 ) {
             return;
         }
 
@@ -1033,30 +1034,32 @@ class CF_Shortcodes {
 
         // Truncated page list: first 8 … last, or window around current when deep in.
         $pages = [];
-        if ( $total_pages <= 9 ) {
-            for ( $i = 1; $i <= $total_pages; $i++ ) {
-                $pages[] = $i;
+        if ( $total_pages > 1 ) {
+            if ( $total_pages <= 9 ) {
+                for ( $i = 1; $i <= $total_pages; $i++ ) {
+                    $pages[] = $i;
+                }
+            } elseif ( $current_page <= 5 ) {
+                for ( $i = 1; $i <= 8; $i++ ) {
+                    $pages[] = $i;
+                }
+                $pages[] = '…';
+                $pages[] = $total_pages;
+            } elseif ( $current_page >= $total_pages - 4 ) {
+                $pages[] = 1;
+                $pages[] = '…';
+                for ( $i = $total_pages - 7; $i <= $total_pages; $i++ ) {
+                    $pages[] = $i;
+                }
+            } else {
+                $pages[] = 1;
+                $pages[] = '…';
+                for ( $i = $current_page - 2; $i <= $current_page + 2; $i++ ) {
+                    $pages[] = $i;
+                }
+                $pages[] = '…';
+                $pages[] = $total_pages;
             }
-        } elseif ( $current_page <= 5 ) {
-            for ( $i = 1; $i <= 8; $i++ ) {
-                $pages[] = $i;
-            }
-            $pages[] = '…';
-            $pages[] = $total_pages;
-        } elseif ( $current_page >= $total_pages - 4 ) {
-            $pages[] = 1;
-            $pages[] = '…';
-            for ( $i = $total_pages - 7; $i <= $total_pages; $i++ ) {
-                $pages[] = $i;
-            }
-        } else {
-            $pages[] = 1;
-            $pages[] = '…';
-            for ( $i = $current_page - 2; $i <= $current_page + 2; $i++ ) {
-                $pages[] = $i;
-            }
-            $pages[] = '…';
-            $pages[] = $total_pages;
         }
         ?>
         <div class="cf-pagination-wrap">
@@ -1074,6 +1077,7 @@ class CF_Shortcodes {
                     </label>
                 </div>
 
+                <?php if ( $total_pages > 1 ) : ?>
                 <div class="cf-pagination-pages">
                     <?php foreach ( $pages as $p ) : ?>
                         <?php if ( $p === '…' ) : ?>
@@ -1100,6 +1104,7 @@ class CF_Shortcodes {
                     </label>
                     <button type="submit" class="cf-btn cf-btn-outline-sm"><?php esc_html_e( 'Go', 'cf-auth' ); ?></button>
                 </form>
+                <?php endif; ?>
             </nav>
         </div>
         <?php
