@@ -172,4 +172,334 @@
         });
     });
 
+    // ── Active Sessions Today ─────────────────────────
+    (function initSessionsToday() {
+        const $root = $('#cf-activity-tab-sessions');
+        if (!$root.length) return;
+
+        const COLORS = {
+            listening: '#2a78d6',
+            browsing:  '#eb6834',
+            reading:   '#1baf7a',
+        };
+
+        let sessions = Array.isArray(window.CF_SESSIONS_TODAY) ? window.CF_SESSIONS_TODAY.slice() : [];
+        let stackedChart = null;
+        let donutChart = null;
+        let openUserId = null;
+
+        function escapeHtml(str) {
+            return String(str == null ? '' : str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function findSession(uid) {
+            uid = parseInt(uid, 10);
+            return sessions.find(s => parseInt(s.user_id, 10) === uid) || null;
+        }
+
+        function renderMetrics(list) {
+            const totals = list.reduce((acc, s) => {
+                acc.total += parseInt(s.total_minutes, 10) || 0;
+                acc.listening += parseInt(s.listening_minutes, 10) || 0;
+                acc.browsing += parseInt(s.browsing_minutes, 10) || 0;
+                acc.reading += parseInt(s.reading_minutes, 10) || 0;
+                return acc;
+            }, { total: 0, listening: 0, browsing: 0, reading: 0 });
+
+            $('#cf-metric-total').text(totals.total);
+            $('#cf-metric-listening').text(totals.listening);
+            $('#cf-metric-browsing').text(totals.browsing);
+            $('#cf-metric-reading').text(totals.reading);
+
+            const live = list.filter(s => s.is_currently_active || s.status === 'live').length;
+            $('#cf-sessions-summary').text(list.length + ' members · ' + live + ' live now');
+        }
+
+        function renderTable(list) {
+            const $tb = $('#cf-sessions-tbody');
+            if (!list.length) {
+                $tb.html('<tr class="cf-sessions-empty"><td colspan="7" class="cf-empty">No activity yet today.</td></tr>');
+                return;
+            }
+            let html = '';
+            list.forEach(function (s) {
+                const live = s.is_currently_active || s.status === 'live';
+                const badge = live
+                    ? '<span class="cf-badge cf-badge-success">🟢 Live now</span>'
+                    : '<span class="cf-badge cf-badge-neutral">Idle</span>';
+                html += '<tr class="cf-sessions-row" data-user-id="' + s.user_id + '" tabindex="0">' +
+                    '<td><div class="cf-tbl-name">' + escapeHtml(s.display_name) + '</div>' +
+                    '<div class="cf-tbl-email">' + escapeHtml(s.email) + '</div></td>' +
+                    '<td>' + badge + '</td>' +
+                    '<td>' + (parseInt(s.listening_minutes, 10) || 0) + '</td>' +
+                    '<td>' + (parseInt(s.browsing_minutes, 10) || 0) + '</td>' +
+                    '<td>' + (parseInt(s.reading_minutes, 10) || 0) + '</td>' +
+                    '<td>' + (parseInt(s.total_minutes, 10) || 0) + '</td>' +
+                    '<td>' + Number(s.xfinity_today || 0).toFixed(2) + '</td>' +
+                    '</tr>';
+            });
+            $tb.html(html);
+        }
+
+        function renderStackedChart(list) {
+            const canvas = document.getElementById('cf-sessions-chart');
+            const $empty = $('#cf-sessions-chart-empty');
+            if (!canvas || typeof Chart === 'undefined') return;
+
+            if (!list.length) {
+                $empty.prop('hidden', false);
+                if (stackedChart) {
+                    stackedChart.destroy();
+                    stackedChart = null;
+                }
+                return;
+            }
+            $empty.prop('hidden', true);
+
+            const labels = list.map(s => s.display_name);
+            const data = {
+                labels: labels,
+                datasets: [
+                    { label: 'Listening', data: list.map(s => parseInt(s.listening_minutes, 10) || 0), backgroundColor: COLORS.listening, stack: 'm' },
+                    { label: 'Browsing',  data: list.map(s => parseInt(s.browsing_minutes, 10) || 0), backgroundColor: COLORS.browsing,  stack: 'm' },
+                    { label: 'Reading',   data: list.map(s => parseInt(s.reading_minutes, 10) || 0),  backgroundColor: COLORS.reading,   stack: 'm' },
+                ],
+            };
+
+            if (stackedChart) {
+                stackedChart.data = data;
+                stackedChart.update('none');
+                return;
+            }
+
+            stackedChart = new Chart(canvas, {
+                type: 'bar',
+                data: data,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom' },
+                        tooltip: { mode: 'index', intersect: false },
+                    },
+                    scales: {
+                        x: { stacked: true, ticks: { autoSkip: true, maxRotation: 45 } },
+                        y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Minutes' } },
+                    },
+                    onClick: function (_evt, elements) {
+                        if (!elements || !elements.length) return;
+                        const idx = elements[0].index;
+                        const s = sessions[idx];
+                        if (s) openDetail(s.user_id);
+                    },
+                },
+            });
+        }
+
+        function fillItemList($ul, items) {
+            if (!items || !items.length) {
+                $ul.html('<li class="cf-quiet">No activity</li>');
+                return;
+            }
+            let html = '';
+            items.forEach(function (it) {
+                html += '<li><span>' + escapeHtml(it.title) + '</span><span>' +
+                    (parseInt(it.minutes, 10) || 0) + ' min</span></li>';
+            });
+            $ul.html(html);
+        }
+
+        function renderDonut(s) {
+            const canvas = document.getElementById('cf-session-donut');
+            if (!canvas || typeof Chart === 'undefined') return;
+
+            const values = [
+                parseInt(s.listening_minutes, 10) || 0,
+                parseInt(s.browsing_minutes, 10) || 0,
+                parseInt(s.reading_minutes, 10) || 0,
+            ];
+            const data = {
+                labels: ['Listening', 'Browsing', 'Reading'],
+                datasets: [{
+                    data: values,
+                    backgroundColor: [COLORS.listening, COLORS.browsing, COLORS.reading],
+                    borderWidth: 0,
+                }],
+            };
+
+            if (donutChart) {
+                donutChart.data = data;
+                donutChart.update('none');
+                return;
+            }
+
+            donutChart = new Chart(canvas, {
+                type: 'doughnut',
+                data: data,
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom' },
+                    },
+                },
+            });
+        }
+
+        function openDetail(userId) {
+            const s = findSession(userId);
+            if (!s) return;
+            openUserId = parseInt(s.user_id, 10);
+
+            const live = s.is_currently_active || s.status === 'live';
+            $('#cf-session-detail-name').text(s.display_name || 'Member');
+            const $badge = $('#cf-session-detail-badge');
+            $badge
+                .removeClass('cf-badge-success cf-badge-neutral')
+                .addClass(live ? 'cf-badge-success' : 'cf-badge-neutral')
+                .text(live ? '🟢 Live now' : 'Idle');
+            $('#cf-session-detail-last').text(s.last_activity ? ('Last activity: ' + s.last_activity) : '');
+
+            fillItemList($('#cf-session-songs'), (s.items && s.items.songs) || []);
+            fillItemList($('#cf-session-pages'), (s.items && s.items.pages) || []);
+            fillItemList($('#cf-session-articles'), (s.items && s.items.articles) || []);
+            renderDonut(s);
+
+            $('#cf-session-detail').show().attr('aria-hidden', 'false');
+        }
+
+        function closeDetail() {
+            openUserId = null;
+            $('#cf-session-detail').hide().attr('aria-hidden', 'true');
+        }
+
+        function applySessions(list) {
+            sessions = Array.isArray(list) ? list.slice() : [];
+            window.CF_SESSIONS_TODAY = sessions;
+            renderMetrics(sessions);
+            renderTable(sessions);
+            renderStackedChart(sessions);
+            if (openUserId) {
+                // Keep popup open; refresh its content for the same member if still present.
+                const still = findSession(openUserId);
+                if (still) {
+                    openDetail(openUserId);
+                }
+            }
+        }
+
+        function refreshSessions() {
+            adminPost('cf_admin_get_sessions_today', {}, function (d) {
+                applySessions(d.sessions || []);
+            });
+        }
+
+        // Table row click / keyboard
+        $(document).on('click', '.cf-sessions-row', function () {
+            openDetail($(this).data('user-id'));
+        });
+        $(document).on('keydown', '.cf-sessions-row', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openDetail($(this).data('user-id'));
+            }
+        });
+
+        // Close: explicit button only (Escape also closes for accessibility)
+        $('#cf-session-detail-close').on('click', closeDetail);
+        $(document).on('keydown', function (e) {
+            if (e.key === 'Escape' && openUserId) closeDetail();
+        });
+
+        // Export dropdown
+        const $exportBtn = $('#cf-sessions-export-btn');
+        const $exportMenu = $('#cf-sessions-export-menu');
+
+        $exportBtn.on('click', function (e) {
+            e.stopPropagation();
+            const open = !$exportMenu.prop('hidden');
+            $exportMenu.prop('hidden', open);
+            $exportBtn.attr('aria-expanded', open ? 'false' : 'true');
+        });
+        $(document).on('click', function () {
+            $exportMenu.prop('hidden', true);
+            $exportBtn.attr('aria-expanded', 'false');
+        });
+        $exportMenu.on('click', function (e) { e.stopPropagation(); });
+
+        function exportCsv() {
+            const header = [
+                'Member', 'Email', 'Status', 'Listening (min)', 'Browsing (min)',
+                'Reading (min)', 'Total (min)', 'Xfinity today', 'Last activity',
+                'Songs', 'Pages', 'Articles',
+            ];
+            const rows = [header];
+            sessions.forEach(function (s) {
+                const live = s.is_currently_active || s.status === 'live';
+                const fmtItems = function (arr) {
+                    return (arr || []).map(function (it) {
+                        return (it.title || '') + ' (' + (it.minutes || 0) + ' min)';
+                    }).join('; ');
+                };
+                rows.push([
+                    s.display_name || '',
+                    s.email || '',
+                    live ? 'Live now' : 'Idle',
+                    parseInt(s.listening_minutes, 10) || 0,
+                    parseInt(s.browsing_minutes, 10) || 0,
+                    parseInt(s.reading_minutes, 10) || 0,
+                    parseInt(s.total_minutes, 10) || 0,
+                    Number(s.xfinity_today || 0).toFixed(2),
+                    s.last_activity || '',
+                    fmtItems(s.items && s.items.songs),
+                    fmtItems(s.items && s.items.pages),
+                    fmtItems(s.items && s.items.articles),
+                ]);
+            });
+
+            const csv = rows.map(function (row) {
+                return row.map(function (cell) {
+                    const v = String(cell == null ? '' : cell);
+                    if (/[",\n]/.test(v)) return '"' + v.replace(/"/g, '""') + '"';
+                    return v;
+                }).join(',');
+            }).join('\n');
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const stamp = new Date().toISOString().slice(0, 10);
+            a.href = url;
+            a.download = 'cf-active-sessions-' + stamp + '.csv';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        $exportMenu.on('click', 'button[data-format]', function () {
+            const format = $(this).data('format');
+            $exportMenu.prop('hidden', true);
+            $exportBtn.attr('aria-expanded', 'false');
+
+            if (format === 'csv') {
+                exportCsv();
+                return;
+            }
+
+            // Excel / PDF / Word — server stub returns "not yet implemented"
+            adminPost('cf_export_sessions_today', { format: format },
+                function () { adminMsg('Export ready.', 'success'); },
+                function (d) { adminMsg((d && d.message) || 'Export not yet implemented.', 'error'); }
+            );
+        });
+
+        // Initial paint (boot data may already match server-rendered table)
+        applySessions(sessions);
+        setInterval(refreshSessions, 10000);
+    })();
+
 })(jQuery);

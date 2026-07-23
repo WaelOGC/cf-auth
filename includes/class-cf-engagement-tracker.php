@@ -17,6 +17,9 @@ class CF_Engagement_Tracker {
     /** Max seconds an activity window can earn without a real interaction. */
     const WINDOW_SECONDS = 1800;
 
+    /** Allowed activity_type values stored in cf_engagement_sessions. */
+    const ACTIVITY_TYPES = [ 'listening', 'browsing', 'reading' ];
+
     public static function get_instance() {
         if ( null === self::$instance ) {
             self::$instance = new self();
@@ -26,6 +29,8 @@ class CF_Engagement_Tracker {
 
     private function __construct() {
         add_action( 'wp_ajax_cf_track_listening_ping', [ $this, 'handle_listening_ping' ] );
+        add_action( 'wp_ajax_cf_track_browsing_ping',  [ $this, 'handle_browsing_ping' ] );
+        add_action( 'wp_ajax_cf_track_reading_ping',   [ $this, 'handle_reading_ping' ] );
         add_action( 'wp_ajax_cf_track_interaction',    [ $this, 'handle_interaction' ] );
         add_action( 'wp_enqueue_scripts',              [ $this, 'enqueue_scripts' ] );
     }
@@ -36,11 +41,16 @@ class CF_Engagement_Tracker {
     }
 
     /**
-     * Per-user listening summary for "today" (site timezone), newest activity first.
+     * Per-user activity summary for "today" (site timezone), newest activity first.
      *
-     * @return array<int, array{user_id:int, display_name:string, email:string,
-     *   sessions_count:int, total_minutes:int, xfinity_today:float,
-     *   last_activity_type:string, last_seen:string, is_currently_active:bool}>
+     * @return array<int, array{
+     *   user_id:int, display_name:string, email:string, status:string,
+     *   sessions_today:int, sessions_count:int,
+     *   listening_minutes:int, browsing_minutes:int, reading_minutes:int, total_minutes:int,
+     *   xfinity_today:float, last_activity:string, last_seen:string,
+     *   last_activity_type:string, is_currently_active:bool,
+     *   items:array{songs:array, pages:array, articles:array}
+     * }>
      */
     public static function get_active_sessions_today() {
         global $wpdb;
@@ -49,50 +59,184 @@ class CF_Engagement_Tracker {
         $today_start = current_time( 'Y-m-d' ) . ' 00:00:00';
         // ~5 min cutoff ≈ several PING_MIN_INTERVAL (55s) windows — survives a couple missed pings.
         $cutoff      = date( 'Y-m-d H:i:s', current_time( 'timestamp' ) - 5 * MINUTE_IN_SECONDS );
+        $now_ts      = current_time( 'timestamp' );
 
         $rows = $wpdb->get_results( $wpdb->prepare(
             "SELECT s.user_id,
-                    COUNT(*) AS sessions_count,
-                    SUM(s.duration_seconds) AS total_seconds,
-                    SUM(s.xfinity_earned) AS xfinity_today,
-                    MAX(s.created_at) AS last_seen,
-                    SUBSTRING_INDEX(GROUP_CONCAT(s.activity_type ORDER BY s.created_at DESC), ',', 1) AS last_activity_type
+                    s.activity_type,
+                    s.item_title,
+                    s.item_url,
+                    s.post_id,
+                    s.duration_seconds,
+                    s.xfinity_earned,
+                    s.created_at
              FROM {$table} s
              WHERE s.created_at >= %s
                AND s.is_valid = 1
-             GROUP BY s.user_id
-             ORDER BY last_seen DESC",
+             ORDER BY s.created_at DESC",
             $today_start
         ) );
 
-        $out = [];
+        /** @var array<int, array> $by_user */
+        $by_user = [];
+
         foreach ( (array) $rows as $row ) {
-            $user = get_userdata( (int) $row->user_id );
+            $uid  = (int) $row->user_id;
+            $type = sanitize_key( $row->activity_type );
+            if ( ! in_array( $type, self::ACTIVITY_TYPES, true ) ) {
+                $type = 'listening';
+            }
+
+            if ( ! isset( $by_user[ $uid ] ) ) {
+                $user = get_userdata( $uid );
+                $by_user[ $uid ] = [
+                    'user_id'             => $uid,
+                    'display_name'        => $user ? $user->display_name : __( '(deleted user)', 'cf-auth' ),
+                    'email'               => $user ? $user->user_email : '',
+                    'status'              => 'idle',
+                    'sessions_today'      => 0,
+                    'sessions_count'      => 0, // backward-compat alias
+                    'listening_minutes'   => 0,
+                    'browsing_minutes'    => 0,
+                    'reading_minutes'     => 0,
+                    'total_minutes'       => 0,
+                    'xfinity_today'       => 0.0,
+                    'last_activity'       => '',
+                    'last_seen'           => $row->created_at,
+                    'last_activity_type'  => $type,
+                    'is_currently_active' => false,
+                    'items'               => [
+                        'songs'    => [],
+                        'pages'    => [],
+                        'articles' => [],
+                    ],
+                    // Internal accumulators (seconds + item maps) stripped before return.
+                    '_seconds' => [
+                        'listening' => 0,
+                        'browsing'  => 0,
+                        'reading'   => 0,
+                    ],
+                    '_items' => [
+                        'songs'    => [],
+                        'pages'    => [],
+                        'articles' => [],
+                    ],
+                ];
+            }
+
+            $entry =& $by_user[ $uid ];
+            $entry['sessions_today']++;
+            $entry['sessions_count'] = $entry['sessions_today'];
+            $entry['xfinity_today'] += (float) $row->xfinity_earned;
+            $entry['_seconds'][ $type ] += (int) $row->duration_seconds;
+
+            if ( $row->created_at > $entry['last_seen'] ) {
+                $entry['last_seen']          = $row->created_at;
+                $entry['last_activity_type'] = $type;
+            }
+
+            $title = trim( (string) $row->item_title );
+            if ( $title === '' && (int) $row->post_id > 0 ) {
+                $resolved = get_the_title( (int) $row->post_id );
+                $title    = is_string( $resolved ) ? trim( $resolved ) : '';
+            }
+            if ( $title === '' ) {
+                $title = __( '(untitled)', 'cf-auth' );
+            }
+
+            $url = trim( (string) $row->item_url );
+            if ( $url === '' && (int) $row->post_id > 0 ) {
+                $permalink = get_permalink( (int) $row->post_id );
+                $url       = is_string( $permalink ) ? $permalink : '';
+            }
+
+            $bucket = 'pages';
+            if ( $type === 'listening' ) {
+                $bucket = 'songs';
+            } elseif ( $type === 'reading' ) {
+                $bucket = 'articles';
+            }
+
+            $key = strtolower( $title );
+            if ( ! isset( $entry['_items'][ $bucket ][ $key ] ) ) {
+                $entry['_items'][ $bucket ][ $key ] = [
+                    'title'   => $title,
+                    'url'     => $url,
+                    'seconds' => 0,
+                ];
+            }
+            $entry['_items'][ $bucket ][ $key ]['seconds'] += (int) $row->duration_seconds;
+            if ( $url !== '' && $entry['_items'][ $bucket ][ $key ]['url'] === '' ) {
+                $entry['_items'][ $bucket ][ $key ]['url'] = $url;
+            }
+
+            unset( $entry );
+        }
+
+        $out = [];
+        foreach ( $by_user as $entry ) {
+            $listening_m = (int) round( $entry['_seconds']['listening'] / 60 );
+            $browsing_m  = (int) round( $entry['_seconds']['browsing'] / 60 );
+            $reading_m   = (int) round( $entry['_seconds']['reading'] / 60 );
+
+            $items = [
+                'songs'    => [],
+                'pages'    => [],
+                'articles' => [],
+            ];
+            foreach ( [ 'songs', 'pages', 'articles' ] as $bucket ) {
+                foreach ( $entry['_items'][ $bucket ] as $item ) {
+                    $items[ $bucket ][] = [
+                        'title'   => $item['title'],
+                        'url'     => $item['url'],
+                        'minutes' => max( 1, (int) round( $item['seconds'] / 60 ) ),
+                    ];
+                }
+                // Highest minutes first within each section.
+                usort( $items[ $bucket ], static function ( $a, $b ) {
+                    return $b['minutes'] <=> $a['minutes'];
+                } );
+            }
+
+            $is_active = $entry['last_seen'] >= $cutoff;
+
             $out[] = [
-                'user_id'             => (int) $row->user_id,
-                'display_name'        => $user ? $user->display_name : __( '(deleted user)', 'cf-auth' ),
-                'email'               => $user ? $user->user_email : '',
-                'sessions_count'      => (int) $row->sessions_count,
-                'total_minutes'       => (int) round( (int) $row->total_seconds / 60 ),
-                'xfinity_today'       => round( (float) $row->xfinity_today, 2 ),
-                'last_activity_type'  => $row->last_activity_type,
-                'last_seen'           => $row->last_seen,
-                'is_currently_active' => $row->last_seen >= $cutoff,
+                'user_id'             => $entry['user_id'],
+                'display_name'        => $entry['display_name'],
+                'email'               => $entry['email'],
+                'status'              => $is_active ? 'live' : 'idle',
+                'sessions_today'      => $entry['sessions_today'],
+                'sessions_count'      => $entry['sessions_count'],
+                'listening_minutes'   => $listening_m,
+                'browsing_minutes'    => $browsing_m,
+                'reading_minutes'     => $reading_m,
+                'total_minutes'       => $listening_m + $browsing_m + $reading_m,
+                'xfinity_today'       => round( (float) $entry['xfinity_today'], 2 ),
+                // Intentionally uses human_time_diff() — do not replace with timezone math.
+                'last_activity'       => human_time_diff( strtotime( $entry['last_seen'] ), $now_ts ) . ' ago',
+                'last_seen'           => $entry['last_seen'],
+                'last_activity_type'  => $entry['last_activity_type'],
+                'is_currently_active' => $is_active,
+                'items'               => $items,
             ];
         }
+
+        usort( $out, static function ( $a, $b ) {
+            return strcmp( $b['last_seen'], $a['last_seen'] );
+        } );
 
         return $out;
     }
 
     /**
-     * Enqueue tracker JS only for logged-in users on pages where listening can occur.
+     * Enqueue tracker JS only for logged-in users on pages where engagement can occur.
      */
     public function enqueue_scripts() {
         if ( ! is_user_logged_in() || is_admin() ) {
             return;
         }
 
-        // Skip dedicated auth pages — no player there.
+        // Skip dedicated auth pages — no player / meaningful page dwell there.
         if ( is_singular() ) {
             $post = get_post();
             if ( $post instanceof WP_Post ) {
@@ -101,6 +245,19 @@ class CF_Engagement_Tracker {
                     return;
                 }
             }
+        }
+
+        $page_activity = self::detect_page_activity_type();
+        $post_id       = is_singular() ? (int) get_queried_object_id() : 0;
+        $item_title    = '';
+        $item_url      = '';
+
+        if ( $post_id ) {
+            $item_title = get_the_title( $post_id );
+            $item_url   = (string) get_permalink( $post_id );
+        } else {
+            $item_title = wp_get_document_title();
+            $item_url   = home_url( add_query_arg( [] ) );
         }
 
         wp_enqueue_script(
@@ -112,20 +269,46 @@ class CF_Engagement_Tracker {
         );
 
         wp_localize_script( 'cf-engagement-tracker', 'CF_ENGAGEMENT', [
-            'ajax_url' => admin_url( 'admin-ajax.php' ),
-            'nonce'    => wp_create_nonce( 'cf_auth_nonce' ),
-            'post_id'  => is_singular() ? (int) get_queried_object_id() : 0,
-            'ping_ms'  => 60000,
+            'ajax_url'           => admin_url( 'admin-ajax.php' ),
+            'nonce'              => wp_create_nonce( 'cf_auth_nonce' ),
+            'post_id'            => $post_id,
+            'ping_ms'            => 60000,
+            'page_activity_type' => $page_activity,
+            'item_title'         => $item_title,
+            'item_url'           => $item_url,
         ] );
+    }
+
+    /**
+     * Classify the current front-end request for page-dwell tracking.
+     * Articles (singular posts) → reading; everything else → browsing.
+     *
+     * @return string 'reading'|'browsing'
+     */
+    private static function detect_page_activity_type() {
+        if ( is_singular( 'post' ) ) {
+            return 'reading';
+        }
+        return 'browsing';
     }
 
     public function handle_listening_ping() {
         $this->handle_ping( 'listening', CF_Xfinity::LISTENING_RATE_PER_MINUTE );
     }
 
+    public function handle_browsing_ping() {
+        // Time-on-page only — browsing does not earn Xfinity (listening-only rewards).
+        $this->handle_ping( 'browsing', 0 );
+    }
+
+    public function handle_reading_ping() {
+        // Time-on-article only — reading does not earn Xfinity (listening-only rewards).
+        $this->handle_ping( 'reading', 0 );
+    }
+
     /**
-     * Genuine player interaction — extends (or restarts) the 30-minute earning window.
-     * Does not credit Xfinity by itself; subsequent listening pings do.
+     * Genuine player / page interaction — extends (or restarts) the 30-minute earning window.
+     * Does not credit Xfinity by itself; subsequent pings do (listening only).
      * Server-throttled so it cannot be spammed to keep the window alive artificially.
      */
     public function handle_interaction() {
@@ -139,30 +322,30 @@ class CF_Engagement_Tracker {
         $activity_type    = sanitize_key( $_POST['activity_type'] ?? 'listening' );
         $interaction_type = sanitize_key( $_POST['interaction_type'] ?? '' );
 
-        if ( $activity_type === '' ) {
+        if ( ! in_array( $activity_type, self::ACTIVITY_TYPES, true ) ) {
             $activity_type = 'listening';
         }
 
         // Throttle so this can't be spammed as a way to keep the window alive artificially.
-        // $interaction_type is accepted (pause|playing|ended|seek|volume|…) but not required to reset.
+        // $interaction_type is accepted (pause|playing|ended|seek|volume|page_view|…) but not required to reset.
         $throttle_key = 'cf_eng_interact_' . $user_id . '_' . $activity_type;
         if ( ! get_transient( $throttle_key ) ) {
             set_transient( $throttle_key, 1, 30 );
             update_user_meta( $user_id, 'cf_eng_window_anchor_' . $activity_type, time() );
         }
 
-        wp_send_json_success( [ 'reset' => true ] );
+        wp_send_json_success( [ 'reset' => true, 'interaction_type' => $interaction_type ] );
     }
 
     /**
-     * Listening ping handler with 30-minute activity-window anti-cheat.
+     * Engagement ping handler with 30-minute activity-window anti-cheat.
      *
      * Anchor meta `cf_eng_window_anchor_{$activity_type}` is the last moment we know
-     * the user was genuinely present (playback start or a real interaction). Plain
-     * pings do NOT advance the anchor — idle tabs stop earning once it goes stale.
+     * the user was genuinely present (playback start, page view, or a real interaction).
+     * Plain pings do NOT advance the anchor — idle tabs stop earning once it goes stale.
      *
-     * @param string $activity_type Currently only listening.
-     * @param float  $rate          Xfinity per minute for this activity.
+     * @param string $activity_type listening|browsing|reading.
+     * @param float  $rate          Xfinity per minute for this activity (0 = track only).
      */
     private function handle_ping( $activity_type, $rate ) {
         check_ajax_referer( 'cf_auth_nonce', 'nonce' );
@@ -171,11 +354,28 @@ class CF_Engagement_Tracker {
             wp_send_json_error( [ 'message' => __( 'Unauthorized', 'cf-auth' ) ], 401 );
         }
 
-        $user_id = get_current_user_id();
-        $post_id = absint( $_POST['post_id'] ?? 0 );
+        if ( ! in_array( $activity_type, self::ACTIVITY_TYPES, true ) ) {
+            wp_send_json_error( [ 'message' => __( 'Invalid activity.', 'cf-auth' ) ] );
+        }
 
-        if ( ! $post_id ) {
+        $user_id    = get_current_user_id();
+        $post_id    = absint( $_POST['post_id'] ?? 0 );
+        $item_title = sanitize_text_field( wp_unslash( $_POST['item_title'] ?? '' ) );
+        $item_url   = esc_url_raw( wp_unslash( $_POST['item_url'] ?? '' ) );
+
+        // Listening still requires a track/post id; browsing/reading may be archives (post_id = 0).
+        if ( $activity_type === 'listening' && ! $post_id ) {
             wp_send_json_error( [ 'message' => __( 'Invalid content.', 'cf-auth' ) ] );
+        }
+
+        if ( $item_title === '' && $post_id ) {
+            $resolved   = get_the_title( $post_id );
+            $item_title = is_string( $resolved ) ? $resolved : '';
+        }
+
+        if ( $item_url === '' && $post_id ) {
+            $permalink = get_permalink( $post_id );
+            $item_url  = is_string( $permalink ) ? $permalink : '';
         }
 
         // Anti-cheat: rate-limit to max 1 accepted ping per PING_MIN_INTERVAL seconds
@@ -190,7 +390,7 @@ class CF_Engagement_Tracker {
         }
         set_transient( $rate_key, 1, self::PING_MIN_INTERVAL );
 
-        // 30-minute activity window — anchor is last known-genuine moment (play-start or interaction).
+        // 30-minute activity window — anchor is last known-genuine moment (play-start, page view, or interaction).
         // Plain pings do NOT advance the anchor.
         $anchor_key = 'cf_eng_window_anchor_' . $activity_type;
         $anchor     = (int) get_user_meta( $user_id, $anchor_key, true );
@@ -200,12 +400,16 @@ class CF_Engagement_Tracker {
             // First ping of a fresh session — grace period starts now.
             update_user_meta( $user_id, $anchor_key, $now );
         } elseif ( ( $now - $anchor ) > self::WINDOW_SECONDS ) {
-            // 30+ minutes since the last known-genuine moment with zero interaction —
-            // stop crediting. Anchor stays stale on purpose; only cf_track_interaction resets it.
-            wp_send_json_success( [
-                'awarded' => false,
-                'reason'  => 'window_expired',
-            ] );
+            if ( $activity_type === 'listening' ) {
+                // Listening stays strict: only cf_track_interaction (player events) may restart.
+                wp_send_json_success( [
+                    'awarded' => false,
+                    'reason'  => 'window_expired',
+                ] );
+            }
+            // Browsing/reading: a dwell ping from a visible tab is itself presence —
+            // restart the window (avoids a race with the async page_view interaction).
+            update_user_meta( $user_id, $anchor_key, $now );
         }
         // else: within the 30-minute window — credit normally, anchor NOT advanced by a plain ping.
 
@@ -224,44 +428,50 @@ class CF_Engagement_Tracker {
             [
                 'user_id'          => $user_id,
                 'activity_type'    => $activity_type,
+                'item_title'       => $item_title !== '' ? $item_title : null,
+                'item_url'         => $item_url !== '' ? $item_url : null,
                 'post_id'          => $post_id,
                 'duration_seconds' => self::PING_DURATION_SECONDS,
                 'xfinity_earned'   => $xfinity,
                 'is_valid'         => $is_valid,
                 'created_at'       => current_time( 'mysql' ),
             ],
-            [ '%d', '%s', '%d', '%d', '%f', '%d', '%s' ]
+            [ '%d', '%s', '%s', '%s', '%d', '%d', '%f', '%d', '%s' ]
         );
 
-        $balance = CF_Xfinity::get_instance()->add_xfinity(
-            $user_id,
-            $xfinity,
-            $activity_type,
-            $post_id
-        );
+        $balance = false;
+        // Only listening awards Xfinity; browsing/reading are time-tracking only.
+        if ( $xfinity > 0 ) {
+            $balance = CF_Xfinity::get_instance()->add_xfinity(
+                $user_id,
+                $xfinity,
+                $activity_type,
+                $post_id ?: null
+            );
 
-        // Notify only when the running balance crosses a whole Xfinity point
-        // (transient holds last notified whole number so this doesn't fire every 60s).
-        if ( $balance !== false && class_exists( 'CF_Notifications' ) ) {
-            $threshold_key   = 'cf_eng_notif_threshold_' . $user_id;
-            $stored          = get_transient( $threshold_key );
-            $balance_before  = round( (float) $balance - (float) $xfinity, 2 );
-            $last_notified   = ( false === $stored )
-                ? (int) floor( $balance_before ) // seed so existing balances don't backfill-notify
-                : (int) $stored;
-            $current_whole = (int) floor( (float) $balance );
+            // Notify only when the running balance crosses a whole Xfinity point
+            // (transient holds last notified whole number so this doesn't fire every 60s).
+            if ( $balance !== false && class_exists( 'CF_Notifications' ) ) {
+                $threshold_key   = 'cf_eng_notif_threshold_' . $user_id;
+                $stored          = get_transient( $threshold_key );
+                $balance_before  = round( (float) $balance - (float) $xfinity, 2 );
+                $last_notified   = ( false === $stored )
+                    ? (int) floor( $balance_before ) // seed so existing balances don't backfill-notify
+                    : (int) $stored;
+                $current_whole = (int) floor( (float) $balance );
 
-            if ( $current_whole > $last_notified ) {
-                CF_Notifications::create_for_user(
-                    $user_id,
-                    'xfinity_earned',
-                    __( 'You earned Xfinity', 'cf-auth' ),
-                    sprintf( __( '+%s Xfinity from listening.', 'cf-auth' ), $xfinity ),
-                    home_url( '/cf-profile#rewards' )
-                );
-                set_transient( $threshold_key, $current_whole, DAY_IN_SECONDS );
-            } elseif ( false === $stored ) {
-                set_transient( $threshold_key, $last_notified, DAY_IN_SECONDS );
+                if ( $current_whole > $last_notified ) {
+                    CF_Notifications::create_for_user(
+                        $user_id,
+                        'xfinity_earned',
+                        __( 'You earned Xfinity', 'cf-auth' ),
+                        sprintf( __( '+%s Xfinity from listening.', 'cf-auth' ), $xfinity ),
+                        home_url( '/cf-profile#rewards' )
+                    );
+                    set_transient( $threshold_key, $current_whole, DAY_IN_SECONDS );
+                } elseif ( false === $stored ) {
+                    set_transient( $threshold_key, $last_notified, DAY_IN_SECONDS );
+                }
             }
         }
 
@@ -271,7 +481,7 @@ class CF_Engagement_Tracker {
         }
 
         wp_send_json_success( [
-            'awarded'        => true,
+            'awarded'        => $xfinity > 0,
             'xfinity_earned' => $xfinity,
             'balance'        => $balance,
         ] );

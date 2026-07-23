@@ -6,7 +6,7 @@ class CF_Xfinity {
     private static $instance = null;
 
     /** Xfinity earned per valid listening minute. */
-    const LISTENING_RATE_PER_MINUTE = 0.1;
+    const LISTENING_RATE_PER_MINUTE = 0.001;
 
     /** Xfinity awarded to the referrer when a referral is confirmed. */
     const REFERRAL_REWARD_REFERRER = 5;

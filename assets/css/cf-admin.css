@@ -411,3 +411,150 @@
 .cf-settings-cards .cf-callback-info { margin:0 0 16px; }
 .cf-card .cf-smtp-guide { padding:0; }
 .cf-card .cf-provider-row { padding-left:0; padding-right:0; }
+
+/* ── Active Sessions Today ───────────────────────── */
+.cf-sessions-header {
+	display:flex;
+	align-items:flex-start;
+	justify-content:space-between;
+	gap:16px;
+	flex-wrap:wrap;
+}
+.cf-export-wrap { position:relative; }
+.cf-export-menu {
+	position:absolute;
+	right:0;
+	top:calc(100% + 4px);
+	min-width:160px;
+	background:#fff;
+	border:1px solid #e5e7eb;
+	border-radius:8px;
+	box-shadow:0 8px 24px rgba(0,0,0,.12);
+	z-index:20;
+	padding:4px;
+	display:flex;
+	flex-direction:column;
+}
+.cf-export-menu[hidden] { display:none; }
+.cf-export-menu button {
+	background:none;
+	border:none;
+	text-align:left;
+	padding:8px 12px;
+	font-size:13px;
+	cursor:pointer;
+	border-radius:6px;
+	color:#222;
+}
+.cf-export-menu button:hover { background:#f3f4f6; }
+
+.cf-metric-listening .cf-metric-value { color:#2a78d6; }
+.cf-metric-browsing  .cf-metric-value { color:#eb6834; }
+.cf-metric-reading   .cf-metric-value { color:#1baf7a; }
+
+.cf-sessions-row { cursor:pointer; }
+.cf-sessions-row:hover { background:#f9fafb; }
+.cf-sessions-chart-wrap { height:280px; }
+.cf-sessions-chart-empty {
+	margin:0;
+	color:#888;
+	font-size:13px;
+	text-align:center;
+	padding:24px 0;
+}
+
+/* Full-screen drill-down — close button only (no outside-click dismiss) */
+.cf-session-detail {
+	position:fixed;
+	inset:0;
+	z-index:100050;
+	background:#fff;
+	display:flex;
+	flex-direction:column;
+}
+.cf-session-detail-inner {
+	display:flex;
+	flex-direction:column;
+	height:100%;
+	max-width:1200px;
+	width:100%;
+	margin:0 auto;
+}
+.cf-session-detail-head {
+	display:flex;
+	align-items:center;
+	justify-content:space-between;
+	gap:16px;
+	padding:16px 24px;
+	border-bottom:1px solid #e5e7eb;
+	flex-shrink:0;
+}
+.cf-session-detail-identity {
+	display:flex;
+	align-items:center;
+	gap:12px;
+	flex-wrap:wrap;
+}
+.cf-session-detail-identity h2 {
+	margin:0;
+	font-size:18px;
+}
+.cf-session-detail-last {
+	font-size:12px;
+	color:#888;
+}
+.cf-session-detail-close {
+	background:none;
+	border:1px solid #e5e7eb;
+	border-radius:8px;
+	width:36px;
+	height:36px;
+	font-size:22px;
+	line-height:1;
+	cursor:pointer;
+	color:#555;
+	margin-left:auto;
+}
+.cf-session-detail-close:hover { background:#f3f4f6; color:#111; }
+.cf-session-detail-body {
+	display:grid;
+	grid-template-columns:1fr 1fr;
+	gap:24px;
+	padding:24px;
+	overflow:auto;
+	flex:1;
+}
+.cf-session-detail-left section { margin-bottom:20px; }
+.cf-session-detail-left h3 {
+	margin:0 0 8px;
+	font-size:13px;
+	text-transform:uppercase;
+	letter-spacing:.4px;
+	color:#666;
+}
+.cf-session-item-list {
+	list-style:none;
+	margin:0;
+	padding:0;
+}
+.cf-session-item-list li {
+	padding:6px 0;
+	border-bottom:1px solid #f3f4f6;
+	font-size:13px;
+	display:flex;
+	justify-content:space-between;
+	gap:12px;
+}
+.cf-session-item-list li.cf-quiet {
+	color:#aaa;
+	border-bottom:none;
+	font-style:italic;
+}
+.cf-session-donut-wrap {
+	position:relative;
+	max-width:320px;
+	margin:0 auto;
+}
+@media (max-width:782px) {
+	.cf-session-detail-body { grid-template-columns:1fr; }
+}

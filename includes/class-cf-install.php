@@ -3,10 +3,11 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class CF_Install {
 
-    const DB_VERSION = '5';
+    const DB_VERSION = '6';
 
     public static function activate() {
         self::create_tables();
+        self::maybe_upgrade_engagement_sessions();
         CF_Activity_Log::create_table();
         update_option( 'cf_auth_db_version', self::DB_VERSION );
         self::create_roles();
@@ -27,9 +28,49 @@ class CF_Install {
             return;
         }
         self::create_tables();
+        self::maybe_upgrade_engagement_sessions();
         CF_Activity_Log::create_table();
         update_option( 'cf_auth_db_version', self::DB_VERSION );
         self::create_pages();
+    }
+
+    /**
+     * Additive column upgrades for cf_engagement_sessions.
+     * CREATE TABLE IF NOT EXISTS + dbDelta is unreliable for ALTER on existing installs,
+     * so we explicitly add missing columns when bumping DB_VERSION.
+     */
+    private static function maybe_upgrade_engagement_sessions() {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'cf_engagement_sessions';
+        // Table may not exist yet on a brand-new install before create_tables() — safe no-op.
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+        if ( $exists !== $table ) {
+            return;
+        }
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $columns = $wpdb->get_col( "DESCRIBE {$table}", 0 );
+        if ( ! is_array( $columns ) ) {
+            return;
+        }
+
+        if ( ! in_array( 'item_title', $columns, true ) ) {
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $wpdb->query(
+                "ALTER TABLE {$table}
+                 ADD COLUMN item_title VARCHAR(255) NULL AFTER activity_type"
+            );
+        }
+
+        if ( ! in_array( 'item_url', $columns, true ) ) {
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $wpdb->query(
+                "ALTER TABLE {$table}
+                 ADD COLUMN item_url VARCHAR(500) NULL AFTER item_title"
+            );
+        }
     }
 
     /**
@@ -157,12 +198,14 @@ class CF_Install {
             INDEX idx_user_id (user_id)
         ) $charset;";
 
-        // Engagement sessions (listening)
+        // Engagement sessions (listening / browsing / reading)
         $sql10 = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}cf_engagement_sessions (
             id               BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
             user_id          BIGINT UNSIGNED NOT NULL,
-            activity_type    VARCHAR(20)     NOT NULL,
-            post_id          BIGINT UNSIGNED NOT NULL,
+            activity_type    VARCHAR(20)     NOT NULL DEFAULT 'listening',
+            item_title       VARCHAR(255)    DEFAULT NULL,
+            item_url         VARCHAR(500)    DEFAULT NULL,
+            post_id          BIGINT UNSIGNED NOT NULL DEFAULT 0,
             duration_seconds INT             NOT NULL DEFAULT 0,
             xfinity_earned   DECIMAL(10,2)   NOT NULL DEFAULT 0,
             is_valid         TINYINT(1)      NOT NULL DEFAULT 1,
