@@ -248,6 +248,8 @@ class CF_Engagement_Tracker {
         }
 
         $page_activity = self::detect_page_activity_type();
+        // Singular pages/CPTs still get a post_id for labeling; archives/home may be 0.
+        // Browsing/reading pings must NOT require a post_id (see handle_ping).
         $post_id       = is_singular() ? (int) get_queried_object_id() : 0;
         $item_title    = '';
         $item_url      = '';
@@ -257,14 +259,24 @@ class CF_Engagement_Tracker {
             $item_url   = (string) get_permalink( $post_id );
         } else {
             $item_title = wp_get_document_title();
-            $item_url   = home_url( add_query_arg( [] ) );
+            // Prefer the real request URL so archive/home dwell is labeled correctly.
+            $item_url = home_url( isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '/' );
         }
+
+        if ( $item_title === '' ) {
+            $item_title = ( $page_activity === 'reading' )
+                ? __( 'Article', 'cf-auth' )
+                : __( 'Browsing', 'cf-auth' );
+        }
+
+        $tracker_js = CF_AUTH_DIR . 'assets/js/cf-engagement-tracker.js';
+        $tracker_ver = CF_AUTH_VERSION . '.' . ( file_exists( $tracker_js ) ? filemtime( $tracker_js ) : '0' );
 
         wp_enqueue_script(
             'cf-engagement-tracker',
             CF_AUTH_URL . 'assets/js/cf-engagement-tracker.js',
             [ 'jquery', 'cf-auth-script' ],
-            CF_AUTH_VERSION,
+            $tracker_ver,
             true
         );
 
@@ -273,6 +285,7 @@ class CF_Engagement_Tracker {
             'nonce'              => wp_create_nonce( 'cf_auth_nonce' ),
             'post_id'            => $post_id,
             'ping_ms'            => 60000,
+            // Always a concrete type so the front-end dwell timer never no-ops.
             'page_activity_type' => $page_activity,
             'item_title'         => $item_title,
             'item_url'           => $item_url,
@@ -281,7 +294,8 @@ class CF_Engagement_Tracker {
 
     /**
      * Classify the current front-end request for page-dwell tracking.
-     * Articles (singular posts) → reading; everything else → browsing.
+     * Blog articles (built-in post type, singular) → reading; everything else → browsing
+     * (pages, archives, home, search, custom post types, etc.).
      *
      * @return string 'reading'|'browsing'
      */
@@ -378,6 +392,13 @@ class CF_Engagement_Tracker {
             $item_url  = is_string( $permalink ) ? $permalink : '';
         }
 
+        // Archives / home often send post_id = 0 — still persist a readable label.
+        if ( $item_title === '' ) {
+            $item_title = ( $activity_type === 'reading' )
+                ? __( 'Article', 'cf-auth' )
+                : ( $activity_type === 'browsing' ? __( 'Browsing', 'cf-auth' ) : __( '(untitled)', 'cf-auth' ) );
+        }
+
         // Anti-cheat: rate-limit to max 1 accepted ping per PING_MIN_INTERVAL seconds
         // per user + activity type. Faster requests are ignored so spam cannot farm Xfinity.
         $rate_key = 'cf_eng_ping_' . $user_id . '_' . $activity_type;
@@ -428,8 +449,9 @@ class CF_Engagement_Tracker {
             [
                 'user_id'          => $user_id,
                 'activity_type'    => $activity_type,
-                'item_title'       => $item_title !== '' ? $item_title : null,
-                'item_url'         => $item_url !== '' ? $item_url : null,
+                // Prefer empty strings over NULL — more reliable across wpdb/MySQL versions.
+                'item_title'       => $item_title,
+                'item_url'         => $item_url,
                 'post_id'          => $post_id,
                 'duration_seconds' => self::PING_DURATION_SECONDS,
                 'xfinity_earned'   => $xfinity,

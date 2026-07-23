@@ -964,6 +964,32 @@ class CF_Admin {
                     </div>
 
                     <div class="cf-card cf-card-flush">
+                        <div class="cf-sessions-toolbar">
+                            <label>
+                                Search
+                                <input type="search" id="cf-sessions-filter-search" class="cf-sessions-search" placeholder="Name or email…" autocomplete="off">
+                            </label>
+                            <label>
+                                Activity
+                                <select id="cf-sessions-filter-activity">
+                                    <option value="all">All</option>
+                                    <option value="listening">Listening</option>
+                                    <option value="browsing">Browsing</option>
+                                    <option value="reading">Reading</option>
+                                </select>
+                            </label>
+                            <label>
+                                Show
+                                <select id="cf-sessions-per-page">
+                                    <option value="5">5</option>
+                                    <option value="10" selected>10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                                per page
+                            </label>
+                        </div>
                         <table class="cf-table" id="cf-sessions-table">
                             <thead>
                                 <tr>
@@ -979,7 +1005,7 @@ class CF_Admin {
                             <tbody id="cf-sessions-tbody">
                             <?php if ( empty( $sessions ) ) : ?>
                             <tr class="cf-sessions-empty"><td colspan="7" class="cf-empty">No activity yet today.</td></tr>
-                            <?php else : foreach ( $sessions as $s ) : ?>
+                            <?php else : foreach ( array_slice( $sessions, 0, 10 ) as $s ) : ?>
                             <tr class="cf-sessions-row" data-user-id="<?php echo (int) $s['user_id']; ?>" tabindex="0">
                                 <td>
                                     <div class="cf-tbl-name"><?php echo esc_html( $s['display_name'] ); ?></div>
@@ -1001,10 +1027,25 @@ class CF_Admin {
                             <?php endforeach; endif; ?>
                             </tbody>
                         </table>
+                        <div class="cf-sessions-pagination" id="cf-sessions-pagination">
+                            <span id="cf-sessions-page-info">Page 1 of 1</span>
+                            <div class="cf-sessions-pagination-btns">
+                                <button type="button" class="button" id="cf-sessions-prev" disabled>Previous</button>
+                                <button type="button" class="button" id="cf-sessions-next" disabled>Next</button>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="cf-card" style="margin-top:16px">
-                        <h3 style="margin:0 0 12px;font-size:14px">Minutes by member</h3>
+                        <div class="cf-sessions-chart-head">
+                            <h3>Minutes by member</h3>
+                            <div class="cf-chart-type-toggles" id="cf-sessions-chart-types" role="group" aria-label="Chart type">
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="grouped">Grouped bar</button>
+                                <button type="button" class="cf-chart-type-btn active" data-chart-type="stacked">Stacked bar</button>
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="donut">Donut</button>
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="horizontal">Horizontal bar</button>
+                            </div>
+                        </div>
                         <div class="cf-chart-wrap cf-sessions-chart-wrap">
                             <canvas id="cf-sessions-chart" height="260"></canvas>
                         </div>
@@ -1012,9 +1053,9 @@ class CF_Admin {
                     </div>
                 </div>
 
-                <!-- Full-screen member drill-down (toggled via JS; close button only) -->
+                <!-- Medium centered member drill-down (close button / Escape only) -->
                 <div id="cf-session-detail" class="cf-session-detail" style="display:none" aria-hidden="true">
-                    <div class="cf-session-detail-inner">
+                    <div class="cf-session-detail-inner" role="dialog" aria-modal="true" aria-labelledby="cf-session-detail-name">
                         <div class="cf-session-detail-head">
                             <div class="cf-session-detail-identity">
                                 <h2 id="cf-session-detail-name">Member</h2>

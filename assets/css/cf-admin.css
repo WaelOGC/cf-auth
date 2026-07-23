@@ -463,22 +463,28 @@
 	padding:24px 0;
 }
 
-/* Full-screen drill-down — close button only (no outside-click dismiss) */
+/* Medium centered drill-down — close button / Escape only (no outside-click dismiss) */
 .cf-session-detail {
 	position:fixed;
 	inset:0;
 	z-index:100050;
-	background:#fff;
-	display:flex;
-	flex-direction:column;
+	background:rgba(0,0,0,.5);
 }
 .cf-session-detail-inner {
+	position:absolute;
+	top:50%;
+	left:50%;
+	transform:translate(-50%,-50%);
 	display:flex;
 	flex-direction:column;
-	height:100%;
-	max-width:1200px;
-	width:100%;
-	margin:0 auto;
+	width:min(90vw, 900px);
+	max-height:85vh;
+	overflow:auto;
+	background:#fff;
+	border-radius:12px;
+	box-shadow:0 20px 60px rgba(0,0,0,.3);
+	container-type:inline-size;
+	container-name:cf-session-detail;
 }
 .cf-session-detail-head {
 	display:flex;
@@ -488,6 +494,10 @@
 	padding:16px 24px;
 	border-bottom:1px solid #e5e7eb;
 	flex-shrink:0;
+	position:sticky;
+	top:0;
+	background:#fff;
+	z-index:1;
 }
 .cf-session-detail-identity {
 	display:flex;
@@ -514,6 +524,7 @@
 	cursor:pointer;
 	color:#555;
 	margin-left:auto;
+	flex-shrink:0;
 }
 .cf-session-detail-close:hover { background:#f3f4f6; color:#111; }
 .cf-session-detail-body {
@@ -521,8 +532,6 @@
 	grid-template-columns:1fr 1fr;
 	gap:24px;
 	padding:24px;
-	overflow:auto;
-	flex:1;
 }
 .cf-session-detail-left section { margin-bottom:20px; }
 .cf-session-detail-left h3 {
@@ -555,6 +564,116 @@
 	max-width:320px;
 	margin:0 auto;
 }
-@media (max-width:782px) {
+@container cf-session-detail (max-width: 600px) {
 	.cf-session-detail-body { grid-template-columns:1fr; }
+}
+@media (max-width:600px) {
+	.cf-session-detail-body { grid-template-columns:1fr; }
+}
+
+/* Export — brand orange (not WP default blue) */
+#cf-sessions-export-btn {
+	background:#eb6834;
+	border-color:#eb6834;
+	color:#fff;
+	text-shadow:none;
+	box-shadow:none;
+}
+#cf-sessions-export-btn:hover,
+#cf-sessions-export-btn:focus {
+	background:#d4552a;
+	border-color:#d4552a;
+	color:#fff;
+}
+#cf-sessions-export-btn:focus {
+	box-shadow:0 0 0 1px #fff, 0 0 0 3px rgba(235,104,52,.45);
+}
+
+/* Sessions toolbar: filters + per-page */
+.cf-sessions-toolbar {
+	display:flex;
+	flex-wrap:wrap;
+	align-items:center;
+	gap:10px 16px;
+	padding:14px 20px;
+	border-bottom:1px solid #f0f0f0;
+}
+.cf-sessions-toolbar label {
+	display:inline-flex;
+	align-items:center;
+	gap:6px;
+	font-size:13px;
+	color:#374151;
+	margin:0;
+}
+.cf-sessions-toolbar input[type="search"],
+.cf-sessions-toolbar input[type="text"],
+.cf-sessions-toolbar select {
+	padding:6px 10px;
+	border:1px solid #d1d5db;
+	border-radius:6px;
+	font-size:13px;
+	min-height:32px;
+}
+.cf-sessions-search {
+	flex:1 1 200px;
+	max-width:280px;
+}
+.cf-sessions-pagination {
+	display:flex;
+	flex-wrap:wrap;
+	align-items:center;
+	justify-content:space-between;
+	gap:10px;
+	padding:12px 20px;
+	border-top:1px solid #f0f0f0;
+	font-size:13px;
+	color:#555;
+}
+.cf-sessions-pagination-btns {
+	display:flex;
+	align-items:center;
+	gap:8px;
+}
+.cf-sessions-pagination-btns .button[disabled] {
+	opacity:.5;
+	cursor:default;
+}
+
+/* Chart type toggles */
+.cf-sessions-chart-head {
+	display:flex;
+	flex-wrap:wrap;
+	align-items:center;
+	justify-content:space-between;
+	gap:12px;
+	margin-bottom:12px;
+}
+.cf-sessions-chart-head h3 {
+	margin:0;
+	font-size:14px;
+}
+.cf-chart-type-toggles {
+	display:inline-flex;
+	flex-wrap:wrap;
+	gap:4px;
+	background:#f3f4f6;
+	padding:3px;
+	border-radius:8px;
+}
+.cf-chart-type-btn {
+	background:transparent;
+	border:none;
+	border-radius:6px;
+	padding:6px 10px;
+	font-size:12px;
+	font-weight:500;
+	color:#555;
+	cursor:pointer;
+	line-height:1.3;
+}
+.cf-chart-type-btn:hover { color:#111; background:#e5e7eb; }
+.cf-chart-type-btn.active {
+	background:#eb6834;
+	color:#fff;
 }

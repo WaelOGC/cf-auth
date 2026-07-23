@@ -184,9 +184,15 @@
         };
 
         let sessions = Array.isArray(window.CF_SESSIONS_TODAY) ? window.CF_SESSIONS_TODAY.slice() : [];
-        let stackedChart = null;
-        let donutChart = null;
+        let chartInstance = null;
+        let detailDonut = null;
         let openUserId = null;
+        let chartType = 'stacked'; // grouped | stacked | donut | horizontal
+        let currentPage = 1;
+        let perPage = 10;
+        let filterSearch = '';
+        let filterActivity = 'all';
+        let pageRows = []; // current page slice (for chart bar clicks)
 
         function escapeHtml(str) {
             return String(str == null ? '' : str)
@@ -201,7 +207,35 @@
             return sessions.find(s => parseInt(s.user_id, 10) === uid) || null;
         }
 
+        function filteredSessions() {
+            const q = filterSearch.trim().toLowerCase();
+            return sessions.filter(function (s) {
+                if (filterActivity === 'listening' && !(parseInt(s.listening_minutes, 10) > 0)) return false;
+                if (filterActivity === 'browsing' && !(parseInt(s.browsing_minutes, 10) > 0)) return false;
+                if (filterActivity === 'reading' && !(parseInt(s.reading_minutes, 10) > 0)) return false;
+                if (!q) return true;
+                const name = String(s.display_name || '').toLowerCase();
+                const email = String(s.email || '').toLowerCase();
+                return name.indexOf(q) !== -1 || email.indexOf(q) !== -1;
+            });
+        }
+
+        function paginatedSessions(list) {
+            const total = list.length;
+            const pages = Math.max(1, Math.ceil(total / perPage) || 1);
+            if (currentPage > pages) currentPage = pages;
+            if (currentPage < 1) currentPage = 1;
+            const start = (currentPage - 1) * perPage;
+            return {
+                list: list.slice(start, start + perPage),
+                total: total,
+                pages: pages,
+                page: currentPage,
+            };
+        }
+
         function renderMetrics(list) {
+            // Always global totals across all users today (ignore filters/pagination).
             const totals = list.reduce((acc, s) => {
                 acc.total += parseInt(s.total_minutes, 10) || 0;
                 acc.listening += parseInt(s.listening_minutes, 10) || 0;
@@ -245,41 +279,69 @@
             $tb.html(html);
         }
 
-        function renderStackedChart(list) {
-            const canvas = document.getElementById('cf-sessions-chart');
-            const $empty = $('#cf-sessions-chart-empty');
-            if (!canvas || typeof Chart === 'undefined') return;
+        function renderPagination(meta) {
+            $('#cf-sessions-page-info').text('Page ' + meta.page + ' of ' + meta.pages +
+                (meta.total ? ' · ' + meta.total + ' members' : ''));
+            $('#cf-sessions-prev').prop('disabled', meta.page <= 1);
+            $('#cf-sessions-next').prop('disabled', meta.page >= meta.pages);
+        }
 
-            if (!list.length) {
-                $empty.prop('hidden', false);
-                if (stackedChart) {
-                    stackedChart.destroy();
-                    stackedChart = null;
-                }
-                return;
+        function destroyMainChart() {
+            if (chartInstance) {
+                chartInstance.destroy();
+                chartInstance = null;
             }
-            $empty.prop('hidden', true);
+        }
 
+        function openFromChartIndex(idx) {
+            const s = pageRows[idx];
+            if (s) openDetail(s.user_id);
+        }
+
+        function buildChartConfig(list) {
             const labels = list.map(s => s.display_name);
-            const data = {
-                labels: labels,
-                datasets: [
-                    { label: 'Listening', data: list.map(s => parseInt(s.listening_minutes, 10) || 0), backgroundColor: COLORS.listening, stack: 'm' },
-                    { label: 'Browsing',  data: list.map(s => parseInt(s.browsing_minutes, 10) || 0), backgroundColor: COLORS.browsing,  stack: 'm' },
-                    { label: 'Reading',   data: list.map(s => parseInt(s.reading_minutes, 10) || 0),  backgroundColor: COLORS.reading,   stack: 'm' },
-                ],
-            };
+            const listening = list.map(s => parseInt(s.listening_minutes, 10) || 0);
+            const browsing = list.map(s => parseInt(s.browsing_minutes, 10) || 0);
+            const reading = list.map(s => parseInt(s.reading_minutes, 10) || 0);
 
-            if (stackedChart) {
-                stackedChart.data = data;
-                stackedChart.update('none');
-                return;
+            if (chartType === 'donut') {
+                const totals = [
+                    listening.reduce((a, b) => a + b, 0),
+                    browsing.reduce((a, b) => a + b, 0),
+                    reading.reduce((a, b) => a + b, 0),
+                ];
+                return {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Listening', 'Browsing', 'Reading'],
+                        datasets: [{
+                            data: totals,
+                            backgroundColor: [COLORS.listening, COLORS.browsing, COLORS.reading],
+                            borderWidth: 0,
+                        }],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } },
+                        // Aggregated view — no per-member drill-down from slices.
+                    },
+                };
             }
 
-            stackedChart = new Chart(canvas, {
+            const stacked = chartType === 'stacked';
+            const horizontal = chartType === 'horizontal';
+            const datasets = [
+                { label: 'Listening', data: listening, backgroundColor: COLORS.listening, stack: stacked ? 'm' : undefined },
+                { label: 'Browsing',  data: browsing,  backgroundColor: COLORS.browsing,  stack: stacked ? 'm' : undefined },
+                { label: 'Reading',   data: reading,   backgroundColor: COLORS.reading,   stack: stacked ? 'm' : undefined },
+            ];
+
+            return {
                 type: 'bar',
-                data: data,
+                data: { labels: labels, datasets: datasets },
                 options: {
+                    indexAxis: horizontal ? 'y' : 'x',
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
@@ -287,17 +349,40 @@
                         tooltip: { mode: 'index', intersect: false },
                     },
                     scales: {
-                        x: { stacked: true, ticks: { autoSkip: true, maxRotation: 45 } },
-                        y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Minutes' } },
+                        x: {
+                            stacked: stacked,
+                            beginAtZero: true,
+                            ticks: horizontal ? { precision: 0 } : { autoSkip: true, maxRotation: 45 },
+                            title: horizontal ? { display: true, text: 'Minutes' } : undefined,
+                        },
+                        y: {
+                            stacked: stacked,
+                            beginAtZero: true,
+                            ticks: horizontal ? { autoSkip: true } : { precision: 0 },
+                            title: horizontal ? undefined : { display: true, text: 'Minutes' },
+                        },
                     },
                     onClick: function (_evt, elements) {
                         if (!elements || !elements.length) return;
-                        const idx = elements[0].index;
-                        const s = sessions[idx];
-                        if (s) openDetail(s.user_id);
+                        openFromChartIndex(elements[0].index);
                     },
                 },
-            });
+            };
+        }
+
+        function renderMainChart(list) {
+            const canvas = document.getElementById('cf-sessions-chart');
+            const $empty = $('#cf-sessions-chart-empty');
+            if (!canvas || typeof Chart === 'undefined') return;
+
+            destroyMainChart();
+
+            if (!list.length) {
+                $empty.prop('hidden', false);
+                return;
+            }
+            $empty.prop('hidden', true);
+            chartInstance = new Chart(canvas, buildChartConfig(list));
         }
 
         function fillItemList($ul, items) {
@@ -313,7 +398,7 @@
             $ul.html(html);
         }
 
-        function renderDonut(s) {
+        function renderDetailDonut(s) {
             const canvas = document.getElementById('cf-session-donut');
             if (!canvas || typeof Chart === 'undefined') return;
 
@@ -331,13 +416,13 @@
                 }],
             };
 
-            if (donutChart) {
-                donutChart.data = data;
-                donutChart.update('none');
+            if (detailDonut) {
+                detailDonut.data = data;
+                detailDonut.update('none');
                 return;
             }
 
-            donutChart = new Chart(canvas, {
+            detailDonut = new Chart(canvas, {
                 type: 'doughnut',
                 data: data,
                 options: {
@@ -366,7 +451,7 @@
             fillItemList($('#cf-session-songs'), (s.items && s.items.songs) || []);
             fillItemList($('#cf-session-pages'), (s.items && s.items.pages) || []);
             fillItemList($('#cf-session-articles'), (s.items && s.items.articles) || []);
-            renderDonut(s);
+            renderDetailDonut(s);
 
             $('#cf-session-detail').show().attr('aria-hidden', 'false');
         }
@@ -376,18 +461,23 @@
             $('#cf-session-detail').hide().attr('aria-hidden', 'true');
         }
 
+        function renderView() {
+            const filtered = filteredSessions();
+            const page = paginatedSessions(filtered);
+            pageRows = page.list;
+            renderTable(page.list);
+            renderPagination(page);
+            renderMainChart(page.list);
+        }
+
         function applySessions(list) {
             sessions = Array.isArray(list) ? list.slice() : [];
             window.CF_SESSIONS_TODAY = sessions;
             renderMetrics(sessions);
-            renderTable(sessions);
-            renderStackedChart(sessions);
+            renderView();
             if (openUserId) {
-                // Keep popup open; refresh its content for the same member if still present.
                 const still = findSession(openUserId);
-                if (still) {
-                    openDetail(openUserId);
-                }
+                if (still) openDetail(openUserId);
             }
         }
 
@@ -414,6 +504,44 @@
             if (e.key === 'Escape' && openUserId) closeDetail();
         });
 
+        // Chart type toggles
+        $('#cf-sessions-chart-types').on('click', '.cf-chart-type-btn', function () {
+            const type = $(this).data('chart-type');
+            if (!type || type === chartType) return;
+            chartType = type;
+            $('#cf-sessions-chart-types .cf-chart-type-btn').removeClass('active');
+            $(this).addClass('active');
+            renderMainChart(pageRows);
+        });
+
+        // Filters
+        $('#cf-sessions-filter-search').on('input', function () {
+            filterSearch = $(this).val() || '';
+            currentPage = 1;
+            renderView();
+        });
+        $('#cf-sessions-filter-activity').on('change', function () {
+            filterActivity = $(this).val() || 'all';
+            currentPage = 1;
+            renderView();
+        });
+
+        // Pagination
+        $('#cf-sessions-per-page').on('change', function () {
+            perPage = parseInt($(this).val(), 10) || 10;
+            currentPage = 1;
+            renderView();
+        });
+        $('#cf-sessions-prev').on('click', function () {
+            if (currentPage <= 1) return;
+            currentPage -= 1;
+            renderView();
+        });
+        $('#cf-sessions-next').on('click', function () {
+            currentPage += 1;
+            renderView();
+        });
+
         // Export dropdown
         const $exportBtn = $('#cf-sessions-export-btn');
         const $exportMenu = $('#cf-sessions-export-menu');
@@ -437,6 +565,7 @@
                 'Songs', 'Pages', 'Articles',
             ];
             const rows = [header];
+            // Export full dataset (not just current page/filter) so admins get everything.
             sessions.forEach(function (s) {
                 const live = s.is_currently_active || s.status === 'live';
                 const fmtItems = function (arr) {
@@ -490,14 +619,13 @@
                 return;
             }
 
-            // Excel / PDF / Word — server stub returns "not yet implemented"
             adminPost('cf_export_sessions_today', { format: format },
                 function () { adminMsg('Export ready.', 'success'); },
                 function (d) { adminMsg((d && d.message) || 'Export not yet implemented.', 'error'); }
             );
         });
 
-        // Initial paint (boot data may already match server-rendered table)
+        // Initial paint
         applySessions(sessions);
         setInterval(refreshSessions, 10000);
     })();

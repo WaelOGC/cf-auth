@@ -10,9 +10,15 @@
     const ajaxUrl = CFG.ajax_url || AUTH.ajax_url || '';
     const pingMs = parseInt(CFG.ping_ms, 10) || 60000;
 
+    function isLoggedIn() {
+        const live = window.CF_AUTH || AUTH;
+        return live.is_logged_in === '1';
+    }
+
     function currentNonce() {
         // Prefer CF_AUTH.nonce — it is refreshed after 403 via cf_refresh_nonces.
-        return AUTH.nonce || CFG.nonce || '';
+        const live = window.CF_AUTH || AUTH;
+        return live.nonce || CFG.nonce || '';
     }
 
     function post(action, data) {
@@ -29,7 +35,7 @@
     let listeningUrl = '';
 
     function sendListeningPing() {
-        if (!listeningPostId || AUTH.is_logged_in !== '1') {
+        if (!listeningPostId || !isLoggedIn()) {
             return;
         }
         post('cf_track_listening_ping', {
@@ -41,7 +47,7 @@
 
     function startListeningPings(postId, meta) {
         postId = parseInt(postId, 10) || 0;
-        if (!postId || AUTH.is_logged_in !== '1') {
+        if (!postId || !isLoggedIn()) {
             return;
         }
 
@@ -81,7 +87,7 @@
     const INTERACTION_THROTTLE_MS = 30000;
 
     function reportInteraction(activityType, type) {
-        if (AUTH.is_logged_in !== '1') {
+        if (!isLoggedIn()) {
             return;
         }
 
@@ -100,30 +106,28 @@
 
     // ── Page dwell: browsing / reading ────────────────────────────────────────
     // Same 60s heartbeat as listening, paused when the tab is hidden.
+    // Reading = singular blog posts; everything else (pages, archives, home, CPTs) = browsing.
+    // post_id may be 0 on archives — that must NOT block browsing pings.
     let pageTimer = null;
-    const pageActivityType = CFG.page_activity_type || '';
+    // Default to browsing so a missing localize key still tracks dwell (reading is the special case).
+    const pageActivityType = (CFG.page_activity_type === 'reading') ? 'reading' : 'browsing';
     const pagePostId = parseInt(CFG.post_id, 10) || 0;
-    const pageTitle = CFG.item_title || (document.title || '');
+    const pageTitle = CFG.item_title || (document.title || '') || (pageActivityType === 'reading' ? 'Article' : 'Browsing');
     const pageUrl = CFG.item_url || window.location.href;
 
     function pagePingAction() {
-        if (pageActivityType === 'reading') {
-            return 'cf_track_reading_ping';
-        }
-        return 'cf_track_browsing_ping';
+        return pageActivityType === 'reading' ? 'cf_track_reading_ping' : 'cf_track_browsing_ping';
     }
 
     function sendPagePing() {
-        if (AUTH.is_logged_in !== '1') {
-            return;
-        }
-        if (pageActivityType !== 'browsing' && pageActivityType !== 'reading') {
+        if (!isLoggedIn()) {
             return;
         }
         if (typeof document.visibilityState !== 'undefined' && document.visibilityState !== 'visible') {
             return;
         }
         post(pagePingAction(), {
+            // Explicit 0 is fine for browsing archives — server allows it for non-listening.
             post_id: pagePostId,
             item_title: pageTitle,
             item_url: pageUrl,
@@ -132,10 +136,7 @@
     }
 
     function startPagePings() {
-        if (pageTimer || AUTH.is_logged_in !== '1') {
-            return;
-        }
-        if (pageActivityType !== 'browsing' && pageActivityType !== 'reading') {
+        if (pageTimer || !isLoggedIn()) {
             return;
         }
         // Seed the 30-min window, then credit dwell every minute while visible.
