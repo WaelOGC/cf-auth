@@ -145,7 +145,7 @@ class CF_Xfinity {
             $listening_mins    = (int) round( $listening_xfinity / $rate );
 
             $days[] = [
-                'date_label'       => date_i18n( get_option( 'date_format' ), strtotime( $row->day_date . ' 12:00:00' ) ),
+                'date_label'       => mysql2date( get_option( 'date_format' ), $row->day_date ),
                 'listening_mins'   => $listening_mins,
                 'listening_xfinity'=> round( $listening_xfinity, 2 ),
                 'xfinity_earned'   => $xfinity_earned,

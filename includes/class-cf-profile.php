@@ -479,11 +479,13 @@ class CF_Profile {
 
     public static function get_member_since( $user_id ) {
         $date = get_user_meta( $user_id, 'cf_member_since', true );
-        if ( ! $date ) {
-            $user = get_userdata( $user_id );
-            $date = $user->user_registered;
+        if ( $date ) {
+            // Plugin-local wall time from current_time( 'mysql' ).
+            return mysql2date( get_option( 'date_format' ), $date );
         }
-        return date_i18n( get_option( 'date_format' ), strtotime( $date ) );
+        $user = get_userdata( $user_id );
+        // WP core stores user_registered in true UTC.
+        return date_i18n( get_option( 'date_format' ), strtotime( $user->user_registered ) );
     }
 
     public static function get_likes_count( $post_id ) {

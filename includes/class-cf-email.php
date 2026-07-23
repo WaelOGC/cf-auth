@@ -237,7 +237,7 @@ class CF_Email {
 
             $lines = [];
             foreach ( (array) $day_rows as $day_row ) {
-                $label   = date_i18n( get_option( 'date_format' ), strtotime( $day_row->day_date ) );
+                $label   = mysql2date( get_option( 'date_format' ), $day_row->day_date );
                 $lines[] = $label . ': ' . number_format( (float) $day_row->day_total, 2 ) . ' Xfinity';
             }
             $daily_breakdown = implode( "\n", $lines );

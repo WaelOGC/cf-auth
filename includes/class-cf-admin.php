@@ -632,7 +632,7 @@ class CF_Admin {
                         <td><?php echo esc_html( $amount_fmt ); ?></td>
                         <td><span class="<?php echo esc_attr( $badge_class ); ?>"><?php echo esc_html( ucfirst( $row->status ) ); ?></span></td>
                         <td class="cf-tbl-message"<?php echo $msg_full ? ' title="' . esc_attr( $msg_full ) . '"' : ''; ?>><?php echo $msg_full ? esc_html( $msg_display ) : '—'; ?></td>
-                        <td class="cf-tbl-date"><?php echo esc_html( date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $row->created_at ) ) ); ?></td>
+                        <td class="cf-tbl-date"><?php echo esc_html( mysql2date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $row->created_at ) ); ?></td>
                         <td>
                             <label>
                                 <input type="checkbox" class="cf-donation-wall-toggle" data-id="<?php echo (int) $row->id; ?>" <?php checked( (int) $row->show_on_wall, 1 ); ?>>
@@ -1061,7 +1061,7 @@ class CF_Admin {
                                 <?php endif; ?>
                             </td>
                             <td class="cf-tbl-date"><?php echo esc_html( $row->ip_address ?: '—' ); ?></td>
-                            <td class="cf-tbl-date"><?php echo esc_html( date_i18n( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), strtotime( $row->created_at ) ) ); ?></td>
+                            <td class="cf-tbl-date"><?php echo esc_html( mysql2date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $row->created_at ) ); ?></td>
                         </tr>
                         <?php endforeach; endif; ?>
                         </tbody>
@@ -1069,7 +1069,7 @@ class CF_Admin {
 
                     <?php if ( $pages > 1 ) : ?>
                     <div class="cf-pagination">
-                        <?php for ( $i = 1; $i <= $pages; $i++ ) :
+                        <?php for ( $i = 1; $i <= $pages; $i++ ) : ?>
                             $url = add_query_arg( array_merge(
                                 [ 'page' => 'cf-auth-activity', 'view' => 'events', 'paged' => $i ],
                                 array_filter( [
