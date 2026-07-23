@@ -3,7 +3,7 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class CF_Install {
 
-    const DB_VERSION = '6';
+    const DB_VERSION = '7';
 
     public static function activate() {
         self::create_tables();
@@ -69,6 +69,14 @@ class CF_Install {
             $wpdb->query(
                 "ALTER TABLE {$table}
                  ADD COLUMN item_url VARCHAR(500) NULL AFTER item_title"
+            );
+        }
+
+        if ( ! in_array( 'ip_address', $columns, true ) ) {
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $wpdb->query(
+                "ALTER TABLE {$table}
+                 ADD COLUMN ip_address VARCHAR(45) NOT NULL DEFAULT '' AFTER is_valid"
             );
         }
     }
@@ -209,8 +217,20 @@ class CF_Install {
             duration_seconds INT             NOT NULL DEFAULT 0,
             xfinity_earned   DECIMAL(10,2)   NOT NULL DEFAULT 0,
             is_valid         TINYINT(1)      NOT NULL DEFAULT 1,
+            ip_address       VARCHAR(45)     NOT NULL DEFAULT '',
             created_at       DATETIME        DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_user_id (user_id)
+        ) $charset;";
+
+        // Social / copy share events (theme CF_Auth.trackShare)
+        $sql14 = "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}cf_shares (
+            id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            user_id    BIGINT UNSIGNED NOT NULL,
+            item_id    BIGINT UNSIGNED NOT NULL,
+            item_type  VARCHAR(20)     NOT NULL,
+            platform   VARCHAR(20)     NOT NULL,
+            created_at DATETIME        DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_user_item (user_id, item_id, item_type)
         ) $charset;";
 
         // Referral relationships
@@ -267,6 +287,7 @@ class CF_Install {
         dbDelta( $sql11 );
         dbDelta( $sql12 );
         dbDelta( $sql13 );
+        dbDelta( $sql14 );
     }
 
     // ── Custom Role ───────────────────────────────────────────────────────────

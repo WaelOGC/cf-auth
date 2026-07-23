@@ -904,6 +904,15 @@
                 .done(r => r.success ? res(r.data) : rej(r.data))
                 .fail(() => rej({ message: 'Connection error. Please try again.' }))
         ),
+        trackShare: (itemId, itemType, platform) => new Promise((res, rej) =>
+            ajaxPost('cf_track_share', {
+                item_id: itemId,
+                item_type: itemType,
+                platform: platform,
+            }, false)
+                .done(r => r.success ? res(r.data) : rej(r.data))
+                .fail(() => rej({ message: 'Connection error. Please try again.' }))
+        ),
     };
 
 })(jQuery);

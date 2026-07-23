@@ -20,6 +20,12 @@ class CF_Engagement_Tracker {
     /** Allowed activity_type values stored in cf_engagement_sessions. */
     const ACTIVITY_TYPES = [ 'listening', 'browsing', 'reading' ];
 
+    /** Allowed share item_type values. */
+    const SHARE_ITEM_TYPES = [ 'post', 'track', 'album' ];
+
+    /** Allowed share platform values. */
+    const SHARE_PLATFORMS = [ 'facebook', 'twitter', 'linkedin', 'whatsapp', 'copy', 'native' ];
+
     public static function get_instance() {
         if ( null === self::$instance ) {
             self::$instance = new self();
@@ -32,6 +38,7 @@ class CF_Engagement_Tracker {
         add_action( 'wp_ajax_cf_track_browsing_ping',  [ $this, 'handle_browsing_ping' ] );
         add_action( 'wp_ajax_cf_track_reading_ping',   [ $this, 'handle_reading_ping' ] );
         add_action( 'wp_ajax_cf_track_interaction',    [ $this, 'handle_interaction' ] );
+        add_action( 'wp_ajax_cf_track_share',          [ $this, 'handle_track_share' ] );
         add_action( 'wp_enqueue_scripts',              [ $this, 'enqueue_scripts' ] );
     }
 
@@ -40,17 +47,122 @@ class CF_Engagement_Tracker {
         return $wpdb->prefix . 'cf_engagement_sessions';
     }
 
+    public static function shares_table() {
+        global $wpdb;
+        return $wpdb->prefix . 'cf_shares';
+    }
+
+    // ── Geo helpers ───────────────────────────────────────────────────────────
+
+    /**
+     * Resolve country/city for an IP via ip-api.com (cached 7 days).
+     * Private/local IPs skip the lookup and return null fields.
+     *
+     * @param string $ip
+     * @return array{country_code:?string,country_name:?string,city:?string}
+     */
+    public static function get_geo_for_ip( $ip ) {
+        $empty = [
+            'country_code' => null,
+            'country_name' => null,
+            'city'         => null,
+        ];
+
+        $ip = trim( (string) $ip );
+        if ( $ip === '' || self::is_private_or_local_ip( $ip ) ) {
+            return $empty;
+        }
+
+        $cache_key = 'cf_geo_' . md5( $ip );
+        $cached    = get_transient( $cache_key );
+        if ( is_array( $cached ) && array_key_exists( 'country_code', $cached ) ) {
+            return [
+                'country_code' => $cached['country_code'] ?? null,
+                'country_name' => $cached['country_name'] ?? null,
+                'city'         => $cached['city'] ?? null,
+            ];
+        }
+
+        $url      = 'http://ip-api.com/json/' . rawurlencode( $ip ) . '?fields=status,country,countryCode,city';
+        $response = wp_remote_get( $url, [
+            'timeout' => 4,
+            'headers' => [ 'Accept' => 'application/json' ],
+        ] );
+
+        if ( is_wp_error( $response ) ) {
+            return $empty;
+        }
+
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        $body = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+        if ( $code !== 200 || ! is_array( $body ) || ( $body['status'] ?? '' ) !== 'success' ) {
+            // Cache failures briefly to avoid hammering the free API on bad IPs.
+            set_transient( $cache_key, $empty, HOUR_IN_SECONDS );
+            return $empty;
+        }
+
+        $result = [
+            'country_code' => isset( $body['countryCode'] ) ? sanitize_text_field( $body['countryCode'] ) : null,
+            'country_name' => isset( $body['country'] ) ? sanitize_text_field( $body['country'] ) : null,
+            'city'         => isset( $body['city'] ) ? sanitize_text_field( $body['city'] ) : null,
+        ];
+
+        set_transient( $cache_key, $result, 7 * DAY_IN_SECONDS );
+        return $result;
+    }
+
+    /**
+     * Convert ISO 3166-1 alpha-2 country code to flag emoji (Regional Indicator Symbols).
+     *
+     * @param string $code
+     * @return string
+     */
+    public static function country_code_to_flag( $code ) {
+        $code = strtoupper( preg_replace( '/[^A-Za-z]/', '', (string) $code ) );
+        if ( strlen( $code ) !== 2 ) {
+            return '';
+        }
+
+        $flag = '';
+        for ( $i = 0; $i < 2; $i++ ) {
+            $cp = 0x1F1E6 + ( ord( $code[ $i ] ) - ord( 'A' ) );
+            if ( function_exists( 'mb_chr' ) ) {
+                $flag .= mb_chr( $cp, 'UTF-8' );
+            } else {
+                // UTF-8 encode a supplementary-plane codepoint without mbstring.
+                $flag .= html_entity_decode( '&#' . $cp . ';', ENT_NOQUOTES, 'UTF-8' );
+            }
+        }
+        return $flag;
+    }
+
+    /**
+     * @param string $ip
+     * @return bool
+     */
+    public static function is_private_or_local_ip( $ip ) {
+        if ( ! filter_var( $ip, FILTER_VALIDATE_IP ) ) {
+            return true;
+        }
+        // FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE fails for private/reserved → treat as private.
+        return ! filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE );
+    }
+
+    /**
+     * Client IP from the current request (sanitized).
+     *
+     * @return string
+     */
+    public static function get_request_ip() {
+        return sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? '' ) );
+    }
+
+    // ── Active sessions (main tab) ────────────────────────────────────────────
+
     /**
      * Per-user activity summary for "today" (site timezone), newest activity first.
      *
-     * @return array<int, array{
-     *   user_id:int, display_name:string, email:string, status:string,
-     *   sessions_today:int, sessions_count:int,
-     *   listening_minutes:int, browsing_minutes:int, reading_minutes:int, total_minutes:int,
-     *   xfinity_today:float, last_activity:string, last_seen:string,
-     *   last_activity_type:string, is_currently_active:bool,
-     *   items:array{songs:array, pages:array, articles:array}
-     * }>
+     * @return array<int, array>
      */
     public static function get_active_sessions_today() {
         global $wpdb;
@@ -69,6 +181,7 @@ class CF_Engagement_Tracker {
                     s.post_id,
                     s.duration_seconds,
                     s.xfinity_earned,
+                    s.ip_address,
                     s.created_at
              FROM {$table} s
              WHERE s.created_at >= %s
@@ -95,7 +208,7 @@ class CF_Engagement_Tracker {
                     'email'               => $user ? $user->user_email : '',
                     'status'              => 'idle',
                     'sessions_today'      => 0,
-                    'sessions_count'      => 0, // backward-compat alias
+                    'sessions_count'      => 0,
                     'listening_minutes'   => 0,
                     'browsing_minutes'    => 0,
                     'reading_minutes'     => 0,
@@ -105,12 +218,16 @@ class CF_Engagement_Tracker {
                     'last_seen'           => $row->created_at,
                     'last_activity_type'  => $type,
                     'is_currently_active' => false,
+                    'ip_address'          => '',
+                    'country_code'        => null,
+                    'country_name'        => null,
+                    'city'                => null,
+                    'country_flag'        => '',
                     'items'               => [
                         'songs'    => [],
                         'pages'    => [],
                         'articles' => [],
                     ],
-                    // Internal accumulators (seconds + item maps) stripped before return.
                     '_seconds' => [
                         'listening' => 0,
                         'browsing'  => 0,
@@ -133,6 +250,12 @@ class CF_Engagement_Tracker {
             if ( $row->created_at > $entry['last_seen'] ) {
                 $entry['last_seen']          = $row->created_at;
                 $entry['last_activity_type'] = $type;
+            }
+
+            // Prefer the most recently seen non-empty IP for the member row.
+            $row_ip = trim( (string) ( $row->ip_address ?? '' ) );
+            if ( $row_ip !== '' && $entry['ip_address'] === '' ) {
+                $entry['ip_address'] = $row_ip;
             }
 
             $title = trim( (string) $row->item_title );
@@ -162,6 +285,7 @@ class CF_Engagement_Tracker {
                 $entry['_items'][ $bucket ][ $key ] = [
                     'title'   => $title,
                     'url'     => $url,
+                    'post_id' => (int) $row->post_id,
                     'seconds' => 0,
                 ];
             }
@@ -189,16 +313,18 @@ class CF_Engagement_Tracker {
                     $items[ $bucket ][] = [
                         'title'   => $item['title'],
                         'url'     => $item['url'],
+                        'post_id' => (int) ( $item['post_id'] ?? 0 ),
                         'minutes' => max( 1, (int) round( $item['seconds'] / 60 ) ),
                     ];
                 }
-                // Highest minutes first within each section.
                 usort( $items[ $bucket ], static function ( $a, $b ) {
                     return $b['minutes'] <=> $a['minutes'];
                 } );
             }
 
             $is_active = $entry['last_seen'] >= $cutoff;
+
+            $geo = self::get_geo_for_ip( $entry['ip_address'] );
 
             $out[] = [
                 'user_id'             => $entry['user_id'],
@@ -212,11 +338,15 @@ class CF_Engagement_Tracker {
                 'reading_minutes'     => $reading_m,
                 'total_minutes'       => $listening_m + $browsing_m + $reading_m,
                 'xfinity_today'       => round( (float) $entry['xfinity_today'], 2 ),
-                // Intentionally uses human_time_diff() — do not replace with timezone math.
                 'last_activity'       => human_time_diff( strtotime( $entry['last_seen'] ), $now_ts ) . ' ago',
                 'last_seen'           => $entry['last_seen'],
                 'last_activity_type'  => $entry['last_activity_type'],
                 'is_currently_active' => $is_active,
+                'ip_address'          => $entry['ip_address'],
+                'country_code'        => $geo['country_code'],
+                'country_name'        => $geo['country_name'],
+                'city'                => $geo['city'],
+                'country_flag'        => self::country_code_to_flag( (string) ( $geo['country_code'] ?? '' ) ),
                 'items'               => $items,
             ];
         }
@@ -229,6 +359,301 @@ class CF_Engagement_Tracker {
     }
 
     /**
+     * Deep Analyst payload for a single user (today, site timezone).
+     *
+     * @param int $user_id
+     * @return array|null
+     */
+    public static function get_session_detail( $user_id ) {
+        global $wpdb;
+
+        $user_id = absint( $user_id );
+        if ( ! $user_id ) {
+            return null;
+        }
+
+        $user = get_userdata( $user_id );
+        if ( ! $user ) {
+            return null;
+        }
+
+        $table       = self::sessions_table();
+        $today_start = current_time( 'Y-m-d' ) . ' 00:00:00';
+        $cutoff      = date( 'Y-m-d H:i:s', current_time( 'timestamp' ) - 5 * MINUTE_IN_SECONDS );
+        $now_ts      = current_time( 'timestamp' );
+
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT activity_type, item_title, item_url, post_id, duration_seconds,
+                    xfinity_earned, ip_address, created_at
+             FROM {$table}
+             WHERE user_id = %d
+               AND created_at >= %s
+               AND is_valid = 1
+             ORDER BY created_at DESC",
+            $user_id,
+            $today_start
+        ) );
+
+        $fav_tracks = get_user_meta( $user_id, 'cf_favorite_tracks', true );
+        $fav_posts  = get_user_meta( $user_id, 'cf_favorite_posts', true );
+        if ( ! is_array( $fav_tracks ) ) {
+            $fav_tracks = [];
+        }
+        if ( ! is_array( $fav_posts ) ) {
+            $fav_posts = [];
+        }
+        $fav_tracks = array_map( 'absint', $fav_tracks );
+        $fav_posts  = array_map( 'absint', $fav_posts );
+
+        $shared_track_ids = self::get_shared_item_ids( $user_id, 'track' );
+        $shared_post_ids  = self::get_shared_item_ids( $user_id, 'post' );
+
+        $seconds = [ 'listening' => 0, 'browsing' => 0, 'reading' => 0 ];
+        $xfinity = 0.0;
+        $last_seen = '';
+        $latest_ip = '';
+
+        // Songs / articles: collapse by post_id (or title key).
+        $songs    = [];
+        $articles = [];
+        // Pages: do NOT collapse across different IPs — key by title|url|ip.
+        $pages = [];
+
+        foreach ( (array) $rows as $row ) {
+            $type = sanitize_key( $row->activity_type );
+            if ( ! in_array( $type, self::ACTIVITY_TYPES, true ) ) {
+                $type = 'listening';
+            }
+
+            $seconds[ $type ] += (int) $row->duration_seconds;
+            $xfinity += (float) $row->xfinity_earned;
+
+            if ( $row->created_at > $last_seen ) {
+                $last_seen = $row->created_at;
+            }
+
+            $row_ip = trim( (string) ( $row->ip_address ?? '' ) );
+            if ( $row_ip !== '' && $latest_ip === '' ) {
+                $latest_ip = $row_ip;
+            }
+
+            $title = trim( (string) $row->item_title );
+            if ( $title === '' && (int) $row->post_id > 0 ) {
+                $resolved = get_the_title( (int) $row->post_id );
+                $title    = is_string( $resolved ) ? trim( $resolved ) : '';
+            }
+            if ( $title === '' ) {
+                $title = __( '(untitled)', 'cf-auth' );
+            }
+
+            $url = trim( (string) $row->item_url );
+            if ( $url === '' && (int) $row->post_id > 0 ) {
+                $permalink = get_permalink( (int) $row->post_id );
+                $url       = is_string( $permalink ) ? $permalink : '';
+            }
+
+            $post_id = (int) $row->post_id;
+            $dur     = (int) $row->duration_seconds;
+            $xf      = (float) $row->xfinity_earned;
+
+            if ( $type === 'listening' ) {
+                $key = $post_id > 0 ? 'id:' . $post_id : 't:' . strtolower( $title );
+                if ( ! isset( $songs[ $key ] ) ) {
+                    $songs[ $key ] = [
+                        'post_id'  => $post_id,
+                        'title'    => $title,
+                        'url'      => $url,
+                        'seconds'  => 0,
+                        'xfinity'  => 0.0,
+                    ];
+                }
+                $songs[ $key ]['seconds'] += $dur;
+                $songs[ $key ]['xfinity'] += $xf;
+            } elseif ( $type === 'reading' ) {
+                $key = $post_id > 0 ? 'id:' . $post_id : 't:' . strtolower( $title );
+                if ( ! isset( $articles[ $key ] ) ) {
+                    $articles[ $key ] = [
+                        'post_id' => $post_id,
+                        'title'   => $title,
+                        'url'     => $url,
+                        'seconds' => 0,
+                    ];
+                }
+                $articles[ $key ]['seconds'] += $dur;
+            } else {
+                // Browsing — keep IP distinct so multi-location visits show separately.
+                $key = strtolower( $title ) . '|' . strtolower( $url ) . '|' . $row_ip;
+                if ( ! isset( $pages[ $key ] ) ) {
+                    $geo = self::get_geo_for_ip( $row_ip );
+                    $pages[ $key ] = [
+                        'title'         => $title,
+                        'url'           => $url,
+                        'seconds'       => 0,
+                        'ip_address'    => $row_ip,
+                        'country_code'  => $geo['country_code'],
+                        'country_name'  => $geo['country_name'],
+                        'city'          => $geo['city'],
+                        'country_flag'  => self::country_code_to_flag( (string) ( $geo['country_code'] ?? '' ) ),
+                    ];
+                }
+                $pages[ $key ]['seconds'] += $dur;
+            }
+        }
+
+        $songs_out = [];
+        foreach ( $songs as $song ) {
+            $pid = (int) $song['post_id'];
+            $songs_out[] = [
+                'post_id'   => $pid,
+                'title'     => $song['title'],
+                'url'       => $song['url'],
+                'minutes'   => max( 1, (int) round( $song['seconds'] / 60 ) ),
+                'xfinity'   => round( (float) $song['xfinity'], 4 ),
+                'liked'     => $pid > 0 && in_array( $pid, $fav_tracks, true ),
+                'commented' => $pid > 0 && self::user_commented_on_post( $user_id, $pid ),
+                'shared'    => $pid > 0 && in_array( $pid, $shared_track_ids, true ),
+            ];
+        }
+        usort( $songs_out, static function ( $a, $b ) {
+            return $b['minutes'] <=> $a['minutes'];
+        } );
+
+        $pages_out = [];
+        foreach ( $pages as $page ) {
+            $pages_out[] = [
+                'title'        => $page['title'],
+                'url'          => $page['url'],
+                'minutes'      => max( 1, (int) round( $page['seconds'] / 60 ) ),
+                'ip_address'   => $page['ip_address'],
+                'country_code' => $page['country_code'],
+                'country_name' => $page['country_name'],
+                'city'         => $page['city'],
+                'country_flag' => $page['country_flag'],
+            ];
+        }
+        usort( $pages_out, static function ( $a, $b ) {
+            return $b['minutes'] <=> $a['minutes'];
+        } );
+
+        $articles_out = [];
+        foreach ( $articles as $article ) {
+            $pid = (int) $article['post_id'];
+            $articles_out[] = [
+                'post_id'   => $pid,
+                'title'     => $article['title'],
+                'url'       => $article['url'],
+                'minutes'   => max( 1, (int) round( $article['seconds'] / 60 ) ),
+                'liked'     => $pid > 0 && in_array( $pid, $fav_posts, true ),
+                'commented' => $pid > 0 && self::user_commented_on_post( $user_id, $pid ),
+                'shared'    => $pid > 0 && in_array( $pid, $shared_post_ids, true ),
+            ];
+        }
+        usort( $articles_out, static function ( $a, $b ) {
+            return $b['minutes'] <=> $a['minutes'];
+        } );
+
+        $listening_m = (int) round( $seconds['listening'] / 60 );
+        $browsing_m  = (int) round( $seconds['browsing'] / 60 );
+        $reading_m   = (int) round( $seconds['reading'] / 60 );
+        $total_m     = $listening_m + $browsing_m + $reading_m;
+        $is_active   = $last_seen !== '' && $last_seen >= $cutoff;
+
+        $geo = self::get_geo_for_ip( $latest_ip );
+
+        $pct = static function ( $part, $whole ) {
+            if ( $whole <= 0 ) {
+                return 0.0;
+            }
+            return round( ( $part / $whole ) * 100, 1 );
+        };
+
+        return [
+            'user_id'             => $user_id,
+            'display_name'        => $user->display_name,
+            'email'               => $user->user_email,
+            'status'              => $is_active ? 'live' : 'idle',
+            'is_currently_active' => $is_active,
+            'last_activity'       => $last_seen
+                ? human_time_diff( strtotime( $last_seen ), $now_ts ) . ' ago'
+                : '',
+            'last_seen'           => $last_seen,
+            'ip_address'          => $latest_ip,
+            'country_code'        => $geo['country_code'],
+            'country_name'        => $geo['country_name'],
+            'city'                => $geo['city'],
+            'country_flag'        => self::country_code_to_flag( (string) ( $geo['country_code'] ?? '' ) ),
+            'listening'           => [
+                'minutes'      => $listening_m,
+                'songs_count'  => count( $songs_out ),
+                'songs'        => $songs_out,
+            ],
+            'browsing'            => [
+                'minutes'      => $browsing_m,
+                'pages_count'  => count( $pages_out ),
+                'pages'        => $pages_out,
+            ],
+            'reading'             => [
+                'minutes'         => $reading_m,
+                'articles_count'  => count( $articles_out ),
+                'articles'        => $articles_out,
+            ],
+            'total'               => [
+                'minutes'    => $total_m,
+                'listening'  => $listening_m,
+                'browsing'   => $browsing_m,
+                'reading'    => $reading_m,
+                'pct_listening' => $pct( $listening_m, $total_m ),
+                'pct_browsing'  => $pct( $browsing_m, $total_m ),
+                'pct_reading'   => $pct( $reading_m, $total_m ),
+            ],
+            'xfinity'             => [
+                'today' => round( $xfinity, 4 ),
+                'songs' => array_values( array_filter( $songs_out, static function ( $s ) {
+                    return (float) $s['xfinity'] > 0;
+                } ) ),
+            ],
+        ];
+    }
+
+    /**
+     * @param int    $user_id
+     * @param string $item_type
+     * @return int[]
+     */
+    private static function get_shared_item_ids( $user_id, $item_type ) {
+        global $wpdb;
+        $table = self::shares_table();
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
+        if ( $exists !== $table ) {
+            return [];
+        }
+
+        $ids = $wpdb->get_col( $wpdb->prepare(
+            "SELECT DISTINCT item_id FROM {$table} WHERE user_id = %d AND item_type = %s",
+            $user_id,
+            $item_type
+        ) );
+
+        return array_map( 'absint', (array) $ids );
+    }
+
+    /**
+     * @param int $user_id
+     * @param int $post_id
+     * @return bool
+     */
+    private static function user_commented_on_post( $user_id, $post_id ) {
+        $count = get_comments( [
+            'post_id' => $post_id,
+            'user_id' => $user_id,
+            'count'   => true,
+            'status'  => 'approve',
+        ] );
+        return (int) $count > 0;
+    }
+
+    /**
      * Enqueue tracker JS only for logged-in users on pages where engagement can occur.
      */
     public function enqueue_scripts() {
@@ -236,7 +661,6 @@ class CF_Engagement_Tracker {
             return;
         }
 
-        // Skip dedicated auth pages — no player / meaningful page dwell there.
         if ( is_singular() ) {
             $post = get_post();
             if ( $post instanceof WP_Post ) {
@@ -248,8 +672,6 @@ class CF_Engagement_Tracker {
         }
 
         $page_activity = self::detect_page_activity_type();
-        // Singular pages/CPTs still get a post_id for labeling; archives/home may be 0.
-        // Browsing/reading pings must NOT require a post_id (see handle_ping).
         $post_id       = is_singular() ? (int) get_queried_object_id() : 0;
         $item_title    = '';
         $item_url      = '';
@@ -259,7 +681,6 @@ class CF_Engagement_Tracker {
             $item_url   = (string) get_permalink( $post_id );
         } else {
             $item_title = wp_get_document_title();
-            // Prefer the real request URL so archive/home dwell is labeled correctly.
             $item_url = home_url( isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '/' );
         }
 
@@ -285,7 +706,6 @@ class CF_Engagement_Tracker {
             'nonce'              => wp_create_nonce( 'cf_auth_nonce' ),
             'post_id'            => $post_id,
             'ping_ms'            => 60000,
-            // Always a concrete type so the front-end dwell timer never no-ops.
             'page_activity_type' => $page_activity,
             'item_title'         => $item_title,
             'item_url'           => $item_url,
@@ -293,10 +713,6 @@ class CF_Engagement_Tracker {
     }
 
     /**
-     * Classify the current front-end request for page-dwell tracking.
-     * Blog articles (built-in post type, singular) → reading; everything else → browsing
-     * (pages, archives, home, search, custom post types, etc.).
-     *
      * @return string 'reading'|'browsing'
      */
     private static function detect_page_activity_type() {
@@ -311,20 +727,57 @@ class CF_Engagement_Tracker {
     }
 
     public function handle_browsing_ping() {
-        // Time-on-page only — browsing does not earn Xfinity (listening-only rewards).
         $this->handle_ping( 'browsing', 0 );
     }
 
     public function handle_reading_ping() {
-        // Time-on-article only — reading does not earn Xfinity (listening-only rewards).
         $this->handle_ping( 'reading', 0 );
     }
 
     /**
-     * Genuine player / page interaction — extends (or restarts) the 30-minute earning window.
-     * Does not credit Xfinity by itself; subsequent pings do (listening only).
-     * Server-throttled so it cannot be spammed to keep the window alive artificially.
+     * Record a share event from the theme (CF_Auth.trackShare).
      */
+    public function handle_track_share() {
+        check_ajax_referer( 'cf_auth_nonce', 'nonce' );
+
+        if ( ! is_user_logged_in() ) {
+            wp_send_json_error( [ 'message' => __( 'Unauthorized', 'cf-auth' ) ], 401 );
+        }
+
+        $item_id   = absint( $_POST['item_id'] ?? 0 );
+        $item_type = sanitize_key( $_POST['item_type'] ?? '' );
+        $platform  = sanitize_key( $_POST['platform'] ?? '' );
+
+        if ( ! $item_id ) {
+            wp_send_json_error( [ 'message' => __( 'Invalid item.', 'cf-auth' ) ] );
+        }
+        if ( ! in_array( $item_type, self::SHARE_ITEM_TYPES, true ) ) {
+            wp_send_json_error( [ 'message' => __( 'Invalid item type.', 'cf-auth' ) ] );
+        }
+        if ( ! in_array( $platform, self::SHARE_PLATFORMS, true ) ) {
+            wp_send_json_error( [ 'message' => __( 'Invalid platform.', 'cf-auth' ) ] );
+        }
+
+        global $wpdb;
+        $inserted = $wpdb->insert(
+            self::shares_table(),
+            [
+                'user_id'    => get_current_user_id(),
+                'item_id'    => $item_id,
+                'item_type'  => $item_type,
+                'platform'   => $platform,
+                'created_at' => current_time( 'mysql' ),
+            ],
+            [ '%d', '%d', '%s', '%s', '%s' ]
+        );
+
+        if ( false === $inserted ) {
+            wp_send_json_error( [ 'message' => __( 'Could not record share.', 'cf-auth' ) ] );
+        }
+
+        wp_send_json_success();
+    }
+
     public function handle_interaction() {
         check_ajax_referer( 'cf_auth_nonce', 'nonce' );
 
@@ -340,8 +793,6 @@ class CF_Engagement_Tracker {
             $activity_type = 'listening';
         }
 
-        // Throttle so this can't be spammed as a way to keep the window alive artificially.
-        // $interaction_type is accepted (pause|playing|ended|seek|volume|page_view|…) but not required to reset.
         $throttle_key = 'cf_eng_interact_' . $user_id . '_' . $activity_type;
         if ( ! get_transient( $throttle_key ) ) {
             set_transient( $throttle_key, 1, 30 );
@@ -352,12 +803,6 @@ class CF_Engagement_Tracker {
     }
 
     /**
-     * Engagement ping handler with 30-minute activity-window anti-cheat.
-     *
-     * Anchor meta `cf_eng_window_anchor_{$activity_type}` is the last moment we know
-     * the user was genuinely present (playback start, page view, or a real interaction).
-     * Plain pings do NOT advance the anchor — idle tabs stop earning once it goes stale.
-     *
      * @param string $activity_type listening|browsing|reading.
      * @param float  $rate          Xfinity per minute for this activity (0 = track only).
      */
@@ -377,7 +822,6 @@ class CF_Engagement_Tracker {
         $item_title = sanitize_text_field( wp_unslash( $_POST['item_title'] ?? '' ) );
         $item_url   = esc_url_raw( wp_unslash( $_POST['item_url'] ?? '' ) );
 
-        // Listening still requires a track/post id; browsing/reading may be archives (post_id = 0).
         if ( $activity_type === 'listening' && ! $post_id ) {
             wp_send_json_error( [ 'message' => __( 'Invalid content.', 'cf-auth' ) ] );
         }
@@ -392,18 +836,14 @@ class CF_Engagement_Tracker {
             $item_url  = is_string( $permalink ) ? $permalink : '';
         }
 
-        // Archives / home often send post_id = 0 — still persist a readable label.
         if ( $item_title === '' ) {
             $item_title = ( $activity_type === 'reading' )
                 ? __( 'Article', 'cf-auth' )
                 : ( $activity_type === 'browsing' ? __( 'Browsing', 'cf-auth' ) : __( '(untitled)', 'cf-auth' ) );
         }
 
-        // Anti-cheat: rate-limit to max 1 accepted ping per PING_MIN_INTERVAL seconds
-        // per user + activity type. Faster requests are ignored so spam cannot farm Xfinity.
         $rate_key = 'cf_eng_ping_' . $user_id . '_' . $activity_type;
         if ( get_transient( $rate_key ) ) {
-            // Soft success — do not reward, do not tip off clients with a hard error.
             wp_send_json_success( [
                 'awarded' => false,
                 'reason'  => 'rate_limited',
@@ -411,31 +851,23 @@ class CF_Engagement_Tracker {
         }
         set_transient( $rate_key, 1, self::PING_MIN_INTERVAL );
 
-        // 30-minute activity window — anchor is last known-genuine moment (play-start, page view, or interaction).
-        // Plain pings do NOT advance the anchor.
         $anchor_key = 'cf_eng_window_anchor_' . $activity_type;
         $anchor     = (int) get_user_meta( $user_id, $anchor_key, true );
         $now        = time();
 
         if ( ! $anchor ) {
-            // First ping of a fresh session — grace period starts now.
             update_user_meta( $user_id, $anchor_key, $now );
         } elseif ( ( $now - $anchor ) > self::WINDOW_SECONDS ) {
             if ( $activity_type === 'listening' ) {
-                // Listening stays strict: only cf_track_interaction (player events) may restart.
                 wp_send_json_success( [
                     'awarded' => false,
                     'reason'  => 'window_expired',
                 ] );
             }
-            // Browsing/reading: a dwell ping from a visible tab is itself presence —
-            // restart the window (avoids a race with the async page_view interaction).
             update_user_meta( $user_id, $anchor_key, $now );
         }
-        // else: within the 30-minute window — credit normally, anchor NOT advanced by a plain ping.
 
-        // Track last-seen IP for referral anti-cheat comparisons.
-        $ip = sanitize_text_field( $_SERVER['REMOTE_ADDR'] ?? '' );
+        $ip = self::get_request_ip();
         if ( $ip !== '' ) {
             update_user_meta( $user_id, 'cf_last_ip', $ip );
         }
@@ -449,20 +881,19 @@ class CF_Engagement_Tracker {
             [
                 'user_id'          => $user_id,
                 'activity_type'    => $activity_type,
-                // Prefer empty strings over NULL — more reliable across wpdb/MySQL versions.
                 'item_title'       => $item_title,
                 'item_url'         => $item_url,
                 'post_id'          => $post_id,
                 'duration_seconds' => self::PING_DURATION_SECONDS,
                 'xfinity_earned'   => $xfinity,
                 'is_valid'         => $is_valid,
+                'ip_address'       => $ip,
                 'created_at'       => current_time( 'mysql' ),
             ],
-            [ '%d', '%s', '%s', '%s', '%d', '%d', '%f', '%d', '%s' ]
+            [ '%d', '%s', '%s', '%s', '%d', '%d', '%f', '%d', '%s', '%s' ]
         );
 
         $balance = false;
-        // Only listening awards Xfinity; browsing/reading are time-tracking only.
         if ( $xfinity > 0 ) {
             $balance = CF_Xfinity::get_instance()->add_xfinity(
                 $user_id,
@@ -471,14 +902,12 @@ class CF_Engagement_Tracker {
                 $post_id ?: null
             );
 
-            // Notify only when the running balance crosses a whole Xfinity point
-            // (transient holds last notified whole number so this doesn't fire every 60s).
             if ( $balance !== false && class_exists( 'CF_Notifications' ) ) {
                 $threshold_key   = 'cf_eng_notif_threshold_' . $user_id;
                 $stored          = get_transient( $threshold_key );
                 $balance_before  = round( (float) $balance - (float) $xfinity, 2 );
                 $last_notified   = ( false === $stored )
-                    ? (int) floor( $balance_before ) // seed so existing balances don't backfill-notify
+                    ? (int) floor( $balance_before )
                     : (int) $stored;
                 $current_whole = (int) floor( (float) $balance );
 
@@ -497,7 +926,6 @@ class CF_Engagement_Tracker {
             }
         }
 
-        // Confirm pending referral once the referred user shows real engagement.
         if ( class_exists( 'CF_Referral' ) ) {
             CF_Referral::get_instance()->confirm_referral( $user_id );
         }

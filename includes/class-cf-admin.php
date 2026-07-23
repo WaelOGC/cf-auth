@@ -20,7 +20,10 @@ class CF_Admin {
         add_action( 'wp_ajax_cf_admin_update_user',   [ $this, 'ajax_update_user' ] );
         add_action( 'wp_ajax_cf_admin_get_xfinity_stats', [ $this, 'ajax_get_xfinity_stats' ] );
         add_action( 'wp_ajax_cf_admin_get_sessions_today', [ $this, 'ajax_get_sessions_today' ] );
+        add_action( 'wp_ajax_cf_admin_get_session_detail', [ $this, 'ajax_get_session_detail' ] );
         add_action( 'wp_ajax_cf_export_sessions_today',    [ $this, 'ajax_export_sessions_today' ] );
+        add_action( 'admin_post_cf_export_sessions_today', [ $this, 'admin_post_export_sessions_today' ] );
+        add_action( 'admin_post_cf_export_session_detail', [ $this, 'admin_post_export_session_detail' ] );
         add_action( 'wp_ajax_cf_save_settings',       [ $this, 'ajax_save_settings' ] );
         add_action( 'wp_ajax_cf_toggle_donation_wall', [ $this, 'ajax_toggle_donation_wall' ] );
     }
@@ -159,15 +162,28 @@ class CF_Admin {
 
         wp_enqueue_script( 'cf-auth-admin', CF_AUTH_URL . 'assets/js/cf-admin.js', $script_deps, $admin_js_ver, true );
         wp_localize_script( 'cf-auth-admin', 'CF_ADMIN', [
-            'ajax_url' => admin_url( 'admin-ajax.php' ),
-            'nonce'    => wp_create_nonce( 'cf_admin_nonce' ),
+            'ajax_url'              => admin_url( 'admin-ajax.php' ),
+            'nonce'                 => wp_create_nonce( 'cf_admin_nonce' ),
+            'export_sessions_url'   => admin_url( 'admin-post.php?action=cf_export_sessions_today' ),
+            'export_detail_url'     => admin_url( 'admin-post.php?action=cf_export_session_detail' ),
+            'session_detail_base'   => admin_url( 'admin.php?page=cf-auth-activity&view=session-detail' ),
         ]);
 
-        if ( $hook === 'cf-auth_page_cf-auth-activity' && ( $_GET['view'] ?? '' ) === 'sessions' ) {
+        $activity_view = sanitize_key( $_GET['view'] ?? '' );
+        if ( $hook === 'cf-auth_page_cf-auth-activity' && $activity_view === 'sessions' ) {
             $sessions_boot = CF_Engagement_Tracker::get_active_sessions_today();
             wp_add_inline_script(
                 'cf-auth-admin',
                 'window.CF_SESSIONS_TODAY = ' . wp_json_encode( $sessions_boot ) . ';',
+                'before'
+            );
+        }
+
+        if ( $hook === 'cf-auth_page_cf-auth-activity' && $activity_view === 'session-detail' ) {
+            $detail_uid = absint( $_GET['user_id'] ?? 0 );
+            wp_add_inline_script(
+                'cf-auth-admin',
+                'window.CF_SESSION_DETAIL_USER_ID = ' . (int) $detail_uid . ';',
                 'before'
             );
         }
@@ -912,7 +928,15 @@ class CF_Admin {
 
     // ── Activity Log ──────────────────────────────────────────────────────────
     public function page_activity() {
-        $view = in_array( $_GET['view'] ?? 'events', [ 'events', 'sessions' ], true ) ? $_GET['view'] : 'events';
+        $view = sanitize_key( $_GET['view'] ?? 'events' );
+        if ( ! in_array( $view, [ 'events', 'sessions', 'session-detail' ], true ) ) {
+            $view = 'events';
+        }
+
+        if ( $view === 'session-detail' ) {
+            $this->render_session_detail_page();
+            return;
+        }
 
         if ( $view === 'sessions' ) {
             $sessions = CF_Engagement_Tracker::get_active_sessions_today();
@@ -923,6 +947,7 @@ class CF_Admin {
             $sum_total     = array_sum( array_column( $sessions, 'total_minutes' ) );
             ?>
             <div class="cf-admin-wrap">
+                <div id="cf-admin-msg" class="notice" style="display:none;margin:12px 0"><p></p></div>
                 <div class="cf-subtabs">
                     <a href="<?php echo esc_url( admin_url( 'admin.php?page=cf-auth-activity&view=events' ) ); ?>"
                        class="cf-subtab">Event Log</a>
@@ -970,15 +995,6 @@ class CF_Admin {
                                 <input type="search" id="cf-sessions-filter-search" class="cf-sessions-search" placeholder="Name or email…" autocomplete="off">
                             </label>
                             <label>
-                                Activity
-                                <select id="cf-sessions-filter-activity">
-                                    <option value="all">All</option>
-                                    <option value="listening">Listening</option>
-                                    <option value="browsing">Browsing</option>
-                                    <option value="reading">Reading</option>
-                                </select>
-                            </label>
-                            <label>
                                 Show
                                 <select id="cf-sessions-per-page">
                                     <option value="5">5</option>
@@ -994,23 +1010,28 @@ class CF_Admin {
                             <thead>
                                 <tr>
                                     <th>Member</th>
+                                    <th>Email</th>
+                                    <th>Country</th>
+                                    <th>IP address</th>
                                     <th>Status</th>
-                                    <th>Listening (min)</th>
-                                    <th>Browsing (min)</th>
-                                    <th>Reading (min)</th>
-                                    <th>Total (min)</th>
-                                    <th>Xfinity today</th>
+                                    <th class="cf-col-actions">👁️</th>
                                 </tr>
                             </thead>
                             <tbody id="cf-sessions-tbody">
                             <?php if ( empty( $sessions ) ) : ?>
-                            <tr class="cf-sessions-empty"><td colspan="7" class="cf-empty">No activity yet today.</td></tr>
-                            <?php else : foreach ( array_slice( $sessions, 0, 10 ) as $s ) : ?>
-                            <tr class="cf-sessions-row" data-user-id="<?php echo (int) $s['user_id']; ?>" tabindex="0">
-                                <td>
-                                    <div class="cf-tbl-name"><?php echo esc_html( $s['display_name'] ); ?></div>
-                                    <div class="cf-tbl-email"><?php echo esc_html( $s['email'] ); ?></div>
-                                </td>
+                            <tr class="cf-sessions-empty"><td colspan="6" class="cf-empty">No activity yet today.</td></tr>
+                            <?php else : foreach ( array_slice( $sessions, 0, 10 ) as $s ) :
+                                $detail_url = admin_url( 'admin.php?page=cf-auth-activity&view=session-detail&user_id=' . (int) $s['user_id'] );
+                                $country_label = trim( ( $s['country_flag'] ?? '' ) . ' ' . ( $s['country_name'] ?? '' ) );
+                                if ( $country_label === '' ) {
+                                    $country_label = '—';
+                                }
+                            ?>
+                            <tr class="cf-sessions-row" data-user-id="<?php echo (int) $s['user_id']; ?>">
+                                <td><div class="cf-tbl-name"><?php echo esc_html( $s['display_name'] ); ?></div></td>
+                                <td><div class="cf-tbl-email"><?php echo esc_html( $s['email'] ); ?></div></td>
+                                <td><?php echo esc_html( $country_label ); ?></td>
+                                <td><code class="cf-ip"><?php echo esc_html( $s['ip_address'] !== '' ? $s['ip_address'] : '—' ); ?></code></td>
                                 <td>
                                     <?php if ( $s['is_currently_active'] ) : ?>
                                     <span class="cf-badge cf-badge-success">🟢 Live now</span>
@@ -1018,11 +1039,9 @@ class CF_Admin {
                                     <span class="cf-badge cf-badge-neutral">Idle</span>
                                     <?php endif; ?>
                                 </td>
-                                <td><?php echo (int) $s['listening_minutes']; ?></td>
-                                <td><?php echo (int) $s['browsing_minutes']; ?></td>
-                                <td><?php echo (int) $s['reading_minutes']; ?></td>
-                                <td><?php echo (int) $s['total_minutes']; ?></td>
-                                <td><?php echo esc_html( number_format( $s['xfinity_today'], 2 ) ); ?></td>
+                                <td class="cf-col-actions">
+                                    <a class="cf-session-view-link" href="<?php echo esc_url( $detail_url ); ?>" title="Deep Analyst" aria-label="View Deep Analyst">👁️</a>
+                                </td>
                             </tr>
                             <?php endforeach; endif; ?>
                             </tbody>
@@ -1050,41 +1069,6 @@ class CF_Admin {
                             <canvas id="cf-sessions-chart" height="260"></canvas>
                         </div>
                         <p class="cf-sessions-chart-empty" id="cf-sessions-chart-empty"<?php echo empty( $sessions ) ? '' : ' hidden'; ?>>No activity to chart yet.</p>
-                    </div>
-                </div>
-
-                <!-- Medium centered member drill-down (close button / Escape only) -->
-                <div id="cf-session-detail" class="cf-session-detail" style="display:none" aria-hidden="true">
-                    <div class="cf-session-detail-inner" role="dialog" aria-modal="true" aria-labelledby="cf-session-detail-name">
-                        <div class="cf-session-detail-head">
-                            <div class="cf-session-detail-identity">
-                                <h2 id="cf-session-detail-name">Member</h2>
-                                <span id="cf-session-detail-badge" class="cf-badge cf-badge-neutral">Idle</span>
-                                <span id="cf-session-detail-last" class="cf-session-detail-last"></span>
-                            </div>
-                            <button type="button" class="cf-session-detail-close" id="cf-session-detail-close" aria-label="Close">×</button>
-                        </div>
-                        <div class="cf-session-detail-body">
-                            <div class="cf-session-detail-left">
-                                <section>
-                                    <h3>Songs played</h3>
-                                    <ul id="cf-session-songs" class="cf-session-item-list"></ul>
-                                </section>
-                                <section>
-                                    <h3>Pages visited</h3>
-                                    <ul id="cf-session-pages" class="cf-session-item-list"></ul>
-                                </section>
-                                <section>
-                                    <h3>Articles read</h3>
-                                    <ul id="cf-session-articles" class="cf-session-item-list"></ul>
-                                </section>
-                            </div>
-                            <div class="cf-session-detail-right">
-                                <div class="cf-session-donut-wrap">
-                                    <canvas id="cf-session-donut"></canvas>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -1335,7 +1319,242 @@ class CF_Admin {
     }
 
     /**
-     * Auto-refresh payload for Active Sessions Today (table + chart + popup).
+     * Deep Analyst — per-user engagement drill-down (sub-view of Activity Log).
+     */
+    private function render_session_detail_page() {
+        $user_id = absint( $_GET['user_id'] ?? 0 );
+        $user    = $user_id ? get_userdata( $user_id ) : false;
+        $back    = admin_url( 'admin.php?page=cf-auth-activity&view=sessions' );
+
+        if ( ! $user ) {
+            ?>
+            <div class="cf-admin-wrap">
+                <div id="cf-admin-msg" class="notice" style="display:none;margin:12px 0"><p></p></div>
+                <p><a class="button" href="<?php echo esc_url( $back ); ?>">← Back to Active Sessions</a></p>
+                <div class="notice notice-error"><p><?php esc_html_e( 'Member not found.', 'cf-auth' ); ?></p></div>
+            </div>
+            <?php
+            return;
+        }
+        ?>
+        <div class="cf-admin-wrap" id="cf-session-detail-page" data-user-id="<?php echo (int) $user_id; ?>">
+            <div id="cf-admin-msg" class="notice" style="display:none;margin:12px 0"><p></p></div>
+
+            <div class="cf-analyst-topbar">
+                <a class="button" href="<?php echo esc_url( $back ); ?>">← Back to Active Sessions</a>
+                <div class="cf-analyst-actions">
+                    <button type="button" class="button" id="cf-analyst-refresh">Refresh</button>
+                    <div class="cf-export-wrap">
+                        <button type="button" class="button" id="cf-analyst-export-btn" aria-haspopup="true" aria-expanded="false">Export ▾</button>
+                        <div class="cf-export-menu" id="cf-analyst-export-menu" hidden>
+                            <div class="cf-export-menu-label">This user</div>
+                            <button type="button" data-scope="user" data-format="csv">CSV</button>
+                            <button type="button" data-scope="user" data-format="xlsx">Excel (.xlsx)</button>
+                            <button type="button" data-scope="user" data-format="pdf">PDF</button>
+                            <button type="button" data-scope="user" data-format="docx">Word (.docx)</button>
+                            <div class="cf-export-menu-label">All users</div>
+                            <button type="button" data-scope="all" data-format="csv">CSV</button>
+                            <button type="button" data-scope="all" data-format="xlsx">Excel (.xlsx)</button>
+                            <button type="button" data-scope="all" data-format="pdf">PDF</button>
+                            <button type="button" data-scope="all" data-format="docx">Word (.docx)</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cf-admin-header cf-analyst-header" style="margin-top:12px">
+                <h1>
+                    Deep Analyst
+                    <span id="cf-analyst-name"><?php echo esc_html( $user->display_name ); ?></span>
+                </h1>
+                <div class="cf-analyst-meta" id="cf-analyst-meta">
+                    <span id="cf-analyst-email"><?php echo esc_html( $user->user_email ); ?></span>
+                    <span id="cf-analyst-badge" class="cf-badge cf-badge-neutral">…</span>
+                    <span id="cf-analyst-country">—</span>
+                </div>
+            </div>
+
+            <div id="cf-analyst-loading" class="cf-analyst-loading">Loading engagement data…</div>
+            <div id="cf-analyst-body" hidden>
+
+                <!-- 1 Listening: content left / chart right -->
+                <div class="cf-card cf-analyst-section" data-section="listening">
+                    <h2 class="cf-analyst-section-title cf-metric-listening">Listening</h2>
+                    <div class="cf-analyst-layout">
+                        <div class="cf-analyst-content">
+                            <div class="cf-metric-grid cf-metric-grid-2">
+                                <div class="cf-metric-card cf-metric-listening">
+                                    <div class="cf-metric-label">Listening minutes</div>
+                                    <div class="cf-metric-value" id="cf-analyst-listen-mins">0</div>
+                                </div>
+                                <div class="cf-metric-card">
+                                    <div class="cf-metric-label">Songs played</div>
+                                    <div class="cf-metric-value" id="cf-analyst-listen-count">0</div>
+                                </div>
+                            </div>
+                            <div class="cf-sessions-toolbar">
+                                <label>Search <input type="search" id="cf-analyst-listen-search" class="cf-sessions-search" placeholder="Song title…" autocomplete="off"></label>
+                            </div>
+                            <table class="cf-table" id="cf-analyst-listen-table">
+                                <thead>
+                                    <tr><th>Song title</th><th>Minutes</th><th>Liked</th><th>Commented</th><th>Shared</th></tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div class="cf-analyst-chart-pane">
+                            <div class="cf-chart-type-toggles" data-chart-group="listening" role="group">
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="grouped">Grouped</button>
+                                <button type="button" class="cf-chart-type-btn active" data-chart-type="stacked">Stacked</button>
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="donut">Donut</button>
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="horizontal">Horizontal</button>
+                            </div>
+                            <div class="cf-chart-wrap cf-analyst-chart-wrap"><canvas id="cf-analyst-listen-chart"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2 Browsing: chart left / content right -->
+                <div class="cf-card cf-analyst-section" data-section="browsing">
+                    <h2 class="cf-analyst-section-title cf-metric-browsing">Browsing</h2>
+                    <div class="cf-analyst-layout cf-analyst-layout-reverse">
+                        <div class="cf-analyst-content">
+                            <div class="cf-metric-grid cf-metric-grid-2">
+                                <div class="cf-metric-card cf-metric-browsing">
+                                    <div class="cf-metric-label">Browsing minutes</div>
+                                    <div class="cf-metric-value" id="cf-analyst-browse-mins">0</div>
+                                </div>
+                                <div class="cf-metric-card">
+                                    <div class="cf-metric-label">Pages visited</div>
+                                    <div class="cf-metric-value" id="cf-analyst-browse-count">0</div>
+                                </div>
+                            </div>
+                            <div class="cf-sessions-toolbar">
+                                <label>Search <input type="search" id="cf-analyst-browse-search" class="cf-sessions-search" placeholder="Page title or URL…" autocomplete="off"></label>
+                            </div>
+                            <table class="cf-table" id="cf-analyst-browse-table">
+                                <thead>
+                                    <tr><th>Page</th><th>Minutes</th><th>Country</th><th>City</th></tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div class="cf-analyst-chart-pane">
+                            <div class="cf-chart-type-toggles" data-chart-group="browsing" role="group">
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="grouped">Grouped</button>
+                                <button type="button" class="cf-chart-type-btn active" data-chart-type="stacked">Stacked</button>
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="donut">Donut</button>
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="horizontal">Horizontal</button>
+                            </div>
+                            <div class="cf-chart-wrap cf-analyst-chart-wrap"><canvas id="cf-analyst-browse-chart"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3 Reading: content left / chart right -->
+                <div class="cf-card cf-analyst-section" data-section="reading">
+                    <h2 class="cf-analyst-section-title cf-metric-reading">Reading</h2>
+                    <div class="cf-analyst-layout">
+                        <div class="cf-analyst-content">
+                            <div class="cf-metric-grid cf-metric-grid-2">
+                                <div class="cf-metric-card cf-metric-reading">
+                                    <div class="cf-metric-label">Reading minutes</div>
+                                    <div class="cf-metric-value" id="cf-analyst-read-mins">0</div>
+                                </div>
+                                <div class="cf-metric-card">
+                                    <div class="cf-metric-label">Articles read</div>
+                                    <div class="cf-metric-value" id="cf-analyst-read-count">0</div>
+                                </div>
+                            </div>
+                            <div class="cf-sessions-toolbar">
+                                <label>Search <input type="search" id="cf-analyst-read-search" class="cf-sessions-search" placeholder="Article title…" autocomplete="off"></label>
+                            </div>
+                            <table class="cf-table" id="cf-analyst-read-table">
+                                <thead>
+                                    <tr><th>Article title</th><th>Minutes</th><th>Liked</th><th>Commented</th><th>Shared</th></tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div class="cf-analyst-chart-pane">
+                            <div class="cf-chart-type-toggles" data-chart-group="reading" role="group">
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="grouped">Grouped</button>
+                                <button type="button" class="cf-chart-type-btn active" data-chart-type="stacked">Stacked</button>
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="donut">Donut</button>
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="horizontal">Horizontal</button>
+                            </div>
+                            <div class="cf-chart-wrap cf-analyst-chart-wrap"><canvas id="cf-analyst-read-chart"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4 Total: chart left / content right -->
+                <div class="cf-card cf-analyst-section" data-section="total">
+                    <h2 class="cf-analyst-section-title">Total</h2>
+                    <div class="cf-analyst-layout cf-analyst-layout-reverse">
+                        <div class="cf-analyst-content">
+                            <div class="cf-metric-grid">
+                                <div class="cf-metric-card">
+                                    <div class="cf-metric-label">Total minutes</div>
+                                    <div class="cf-metric-value" id="cf-analyst-total-mins">0</div>
+                                </div>
+                                <div class="cf-metric-card cf-metric-listening">
+                                    <div class="cf-metric-label">Listening %</div>
+                                    <div class="cf-metric-value" id="cf-analyst-pct-listen">0%</div>
+                                </div>
+                                <div class="cf-metric-card cf-metric-browsing">
+                                    <div class="cf-metric-label">Browsing %</div>
+                                    <div class="cf-metric-value" id="cf-analyst-pct-browse">0%</div>
+                                </div>
+                                <div class="cf-metric-card cf-metric-reading">
+                                    <div class="cf-metric-label">Reading %</div>
+                                    <div class="cf-metric-value" id="cf-analyst-pct-read">0%</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="cf-analyst-chart-pane">
+                            <div class="cf-chart-type-toggles" data-chart-group="total" role="group">
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="grouped">Grouped</button>
+                                <button type="button" class="cf-chart-type-btn active" data-chart-type="stacked">Stacked</button>
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="donut">Donut</button>
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="horizontal">Horizontal</button>
+                            </div>
+                            <div class="cf-chart-wrap cf-analyst-chart-wrap"><canvas id="cf-analyst-total-chart"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5 Xfinity: content left / chart right -->
+                <div class="cf-card cf-analyst-section" data-section="xfinity">
+                    <h2 class="cf-analyst-section-title">Xfinity Today</h2>
+                    <div class="cf-analyst-layout">
+                        <div class="cf-analyst-content">
+                            <div class="cf-metric-grid cf-metric-grid-2">
+                                <div class="cf-metric-card">
+                                    <div class="cf-metric-label">Xfinity earned today</div>
+                                    <div class="cf-metric-value" id="cf-analyst-xfinity">0</div>
+                                </div>
+                            </div>
+                            <p class="cf-analyst-hint">Listening is currently the only Xfinity-earning activity.</p>
+                        </div>
+                        <div class="cf-analyst-chart-pane">
+                            <div class="cf-chart-type-toggles" data-chart-group="xfinity" role="group">
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="grouped">Grouped</button>
+                                <button type="button" class="cf-chart-type-btn active" data-chart-type="stacked">Stacked</button>
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="donut">Donut</button>
+                                <button type="button" class="cf-chart-type-btn" data-chart-type="horizontal">Horizontal</button>
+                            </div>
+                            <div class="cf-chart-wrap cf-analyst-chart-wrap"><canvas id="cf-analyst-xfinity-chart"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * Auto-refresh payload for Active Sessions Today (table + chart).
      */
     public function ajax_get_sessions_today() {
         check_ajax_referer( 'cf_admin_nonce', 'nonce' );
@@ -1359,8 +1578,25 @@ class CF_Admin {
     }
 
     /**
-     * Export stub for Excel/PDF/Word. CSV is generated client-side in cf-admin.js.
-     * Formats other than csv return a clear "not yet implemented" notice.
+     * Deep Analyst AJAX payload for one user.
+     */
+    public function ajax_get_session_detail() {
+        check_ajax_referer( 'cf_admin_nonce', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => 'Unauthorized' ], 403 );
+        }
+
+        $user_id = absint( $_POST['user_id'] ?? 0 );
+        $detail  = CF_Engagement_Tracker::get_session_detail( $user_id );
+        if ( ! $detail ) {
+            wp_send_json_error( [ 'message' => __( 'Member not found or no data.', 'cf-auth' ) ] );
+        }
+
+        wp_send_json_success( $detail );
+    }
+
+    /**
+     * Legacy AJAX stub — exports now go through admin-post.php (see admin_post_export_*).
      */
     public function ajax_export_sessions_today() {
         check_ajax_referer( 'cf_admin_nonce', 'nonce' );
@@ -1368,26 +1604,81 @@ class CF_Admin {
             wp_send_json_error( [ 'message' => 'Unauthorized' ], 403 );
         }
 
-        $format = sanitize_key( $_POST['format'] ?? '' );
-        $supported_stub = [ 'xlsx', 'pdf', 'docx' ];
+        wp_send_json_error( [
+            'message' => __( 'Use the Export menu — downloads are served via admin-post.php.', 'cf-auth' ),
+        ] );
+    }
 
-        if ( $format === 'csv' ) {
-            wp_send_json_error( [
-                'message' => 'CSV export is handled in the browser — use Export data → CSV.',
-            ] );
+    /**
+     * Server-side export for the main Active Sessions table (Member, Email, Country, IP).
+     */
+    public function admin_post_export_sessions_today() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Unauthorized', 'cf-auth' ), 403 );
+        }
+        check_admin_referer( 'cf_admin_nonce', 'nonce' );
+
+        $format = sanitize_key( $_GET['format'] ?? 'csv' );
+        if ( ! in_array( $format, [ 'csv', 'xlsx', 'pdf', 'docx' ], true ) ) {
+            $format = 'csv';
         }
 
-        if ( in_array( $format, $supported_stub, true ) ) {
-            wp_send_json_error( [
-                'message' => sprintf(
-                    /* translators: %s: export format like xlsx, pdf, docx */
-                    __( '%s export is not yet implemented. Use CSV for now.', 'cf-auth' ),
-                    strtoupper( $format )
-                ),
-            ] );
+        $sessions = CF_Engagement_Tracker::get_active_sessions_today();
+        list( $headers, $rows ) = CF_Admin_Export::sessions_table_rows( $sessions );
+        $stamp = gmdate( 'Y-m-d' );
+        CF_Admin_Export::download(
+            'cf-active-sessions-' . $stamp,
+            $format,
+            $headers,
+            $rows,
+            'Active Sessions Today'
+        );
+    }
+
+    /**
+     * Server-side export for Deep Analyst (scope=user|all).
+     */
+    public function admin_post_export_session_detail() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Unauthorized', 'cf-auth' ), 403 );
+        }
+        check_admin_referer( 'cf_admin_nonce', 'nonce' );
+
+        $format  = sanitize_key( $_GET['format'] ?? 'csv' );
+        $scope   = sanitize_key( $_GET['scope'] ?? 'user' );
+        $user_id = absint( $_GET['user_id'] ?? 0 );
+        if ( ! in_array( $format, [ 'csv', 'xlsx', 'pdf', 'docx' ], true ) ) {
+            $format = 'csv';
         }
 
-        wp_send_json_error( [ 'message' => __( 'Unknown export format.', 'cf-auth' ) ] );
+        $stamp = gmdate( 'Y-m-d' );
+
+        if ( $scope === 'all' ) {
+            $sessions = CF_Engagement_Tracker::get_active_sessions_today();
+            list( $headers, $rows ) = CF_Admin_Export::all_users_compare_rows( $sessions );
+            CF_Admin_Export::download(
+                'cf-sessions-all-users-' . $stamp,
+                $format,
+                $headers,
+                $rows,
+                'All Users — Active Sessions Today'
+            );
+        }
+
+        $detail = CF_Engagement_Tracker::get_session_detail( $user_id );
+        if ( ! $detail ) {
+            wp_die( esc_html__( 'Member not found.', 'cf-auth' ), 404 );
+        }
+
+        list( $headers, $rows ) = CF_Admin_Export::session_detail_rows( $detail );
+        $slug = sanitize_title( $detail['display_name'] ?? 'user' );
+        CF_Admin_Export::download(
+            'cf-deep-analyst-' . $slug . '-' . $stamp,
+            $format,
+            $headers,
+            $rows,
+            'Deep Analyst — ' . ( $detail['display_name'] ?? 'User' )
+        );
     }
 
     public function ajax_update_user() {

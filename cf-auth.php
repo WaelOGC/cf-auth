@@ -31,6 +31,7 @@ require_once CF_AUTH_DIR . 'includes/class-cf-donations.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-shortcodes.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-user-menu.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-admin.php';
+require_once CF_AUTH_DIR . 'includes/class-cf-admin-export.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-activity-log.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-notifications.php';
 require_once CF_AUTH_DIR . 'includes/class-cf-xfinity.php';
